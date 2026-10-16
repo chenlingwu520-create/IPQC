@@ -23,7 +23,7 @@ if st.session_state.page == "login":
     st.markdown("### 請設定本次檢驗基本資訊")
 
     with st.form("login_form"):
-        inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
+        inspector = st.text_input("檢驗人員", value="")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
         line = st.selectbox("產線", ["AKC"])
         model = st.selectbox("機種", ["BLM243"])
@@ -86,16 +86,9 @@ elif st.session_state.page == "dashboard":
         ),
         (3, "定部扭轉脫拔力", "扭力板手", "20 Nm Min", "numeric", 1, 20.0, 999.0),
         (4, "磁鐵脫拔力", "萬材機", "5 Kgf Min", "numeric", 1, 5.0, 999.0),
-        (
-            5,
-            "軸與轉子堆疊角度(1-3層)",
-            "投影機",
-            "各層 ±0.25°",
-            "numeric",
-            3,
-            -0.25,
-            0.25,
-        ),
+        (5, "軸與轉子堆疊角度(第一層)", "投影機", "0°±0.25°", "numeric", 1, -0.25, 0.25),
+        (5.1, "軸與轉子堆疊角度(第二層)", "投影機", "5.5°±0.25°", "numeric", 1, 5.25, 5.75),
+        (5.2, "軸與轉子堆疊角度(第三層)", "投影機", "11°±0.25°", "numeric", 1, 10.75, 11.25),
         (6, "皮帶輪扭轉脫拔力", "扭力板手", "20Nm Min", "numeric", 1, 20.0, 999.0),
         (7, "三相端子高度", "高度規", "3x 24.2~25.2mm", "numeric", 3, 24.2, 25.2),
         (8, "皮帶輪壓入尺寸", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8),
