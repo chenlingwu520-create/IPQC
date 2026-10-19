@@ -17,19 +17,23 @@ if "meta" not in st.session_state:
 if "submitted_records" not in st.session_state:
     st.session_state.submitted_records = []
 if "daily_history" not in st.session_state:
-    # 記錄今天各批號已經完成的項目，跨時段自動提供參考但不鎖死
+    # 紀錄格式: { "LOT_日期_項次": data }
     st.session_state.daily_history = {}
 
 # --- 1. 登入與巡檢基本設定頁面 ---
 if st.session_state.page == "login":
     st.title("🏭 IPQC 行動巡檢系統")
-    st.markdown("### 請設定本次巡檢基本資訊與時段")
+    st.markdown("### 請設定本次巡檢基本資訊與日期")
 
     with st.form("login_form"):
         inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
         session_time = st.selectbox(
             "巡檢時段", ["上午場 (First Half)", "下午場 (Second Half)"]
+        )
+        # 登入時即可選擇檢驗日期（支援當日或歷史補登）
+        target_date = st.date_input(
+            "檢驗日期 (支援補登)", value=datetime.date.today()
         )
         line = st.selectbox("產線", ["AKC"])
         model = st.selectbox("機種", ["BLM243"])
@@ -41,14 +45,15 @@ if st.session_state.page == "login":
                 "inspector": inspector,
                 "shift": shift,
                 "session_time": session_time,
+                "inspection_date": target_date,
                 "line": line,
                 "model": model,
                 "lot_no": lot_no,
             }
             st.session_state.inspection_data = {}
 
-            # 智慧帶入今日已完成的紀錄（作為參考，不強制鎖死）
-            key_prefix = f"{lot_no}_{datetime.date.today()}"
+            # 載入該批號在該選擇日期的歷史紀錄（支援補登帶入）
+            key_prefix = f"{lot_no}_{target_date}"
             for k, v in st.session_state.daily_history.items():
                 if k.startswith(key_prefix):
                     item_no = int(k.split("_")[-1])
@@ -57,10 +62,28 @@ if st.session_state.page == "login":
             st.session_state.page = "dashboard"
             st.rerun()
 
-# --- 2. 主選單儀表板 (彈性巡檢、不鎖死) ---
+# --- 2. 主選單儀表板 (支援日期切換與補登) ---
 elif st.session_state.page == "dashboard":
     meta = st.session_state.meta
     st.title(f"📋 {meta['line']}產線 - {meta['model']} 巡檢選單")
+
+    # 讓檢驗人員在主畫面也能隨時切換或確認檢驗日期
+    selected_date = st.date_input(
+        "📅 當前檢驗/補登日期",
+        value=meta.get("inspection_date", datetime.date.today()),
+        key="dashboard_date_picker",
+    )
+    # 如果在主畫面切換了日期，同步更新 meta 並重新載入該日期的資料
+    if selected_date != meta.get("inspection_date"):
+        meta["inspection_date"] = selected_date
+        st.session_state.inspection_data = {}
+        key_prefix = f"{meta['lot_no']}_{selected_date}"
+        for k, v in st.session_state.daily_history.items():
+            if k.startswith(key_prefix):
+                item_no = int(k.split("_")[-1])
+                st.session_state.inspection_data[item_no] = v
+        st.rerun()
+
     st.caption(
         f"人員：{meta['inspector']} | 班別：{meta['shift']} ({meta['session_time']}) | 批號：{meta['lot_no']}"
     )
@@ -108,7 +131,7 @@ elif st.session_state.page == "dashboard":
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
     st.info(
-        "💡 提示：系統支援彈性覆蓋與隨時補登。一天一次或週期性項目您可以依實際進度隨時點進去修改！"
+        "💡 提示：若需補登過去日期的資料，可直接上方調整『檢驗/補登日期』後填寫！"
     )
 
     for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
@@ -151,7 +174,7 @@ elif st.session_state.page == "dashboard":
     # 送出區
     if completed_count > 0:
         if st.button(
-            "🚀 確認送出本次巡檢紀錄並產生 Raw Data",
+            "🚀 確認送出巡檢紀錄並更新 Raw Data",
             type="primary",
             use_container_width=True,
         ):
@@ -159,11 +182,12 @@ elif st.session_state.page == "dashboard":
             rec_id = (
                 f"REC-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
             )
+            target_date_str = str(meta["inspection_date"])
 
-            key_prefix = f"{meta['lot_no']}_{datetime.date.today()}"
+            key_prefix = f"{meta['lot_no']}_{target_date_str}"
             for item_no, data in st.session_state.inspection_data.items():
                 if data["status"] in ["OK", "NG"]:
-                    # 更新當日歷史紀錄，供後續時段參考
+                    # 記錄到當日歷史中（依選擇的補登日期歸檔）
                     st.session_state.daily_history[
                         f"{key_prefix}_{item_no}"
                     ] = data
@@ -172,7 +196,8 @@ elif st.session_state.page == "dashboard":
                         st.session_state.submitted_records.append(
                             {
                                 "紀錄編號": rec_id,
-                                "檢驗時間": current_time,
+                                "系統送出時間": current_time,
+                                "指定檢驗日期": target_date_str,
                                 "檢驗人員": meta["inspector"],
                                 "班別": meta["shift"],
                                 "時段": meta["session_time"],
@@ -188,11 +213,13 @@ elif st.session_state.page == "dashboard":
                                 "異常備註": data["remark"],
                             }
                         )
-            st.success("🎉 本次巡檢紀錄已成功儲存！")
+            st.success(
+                f"🎉 【{target_date_str}】的巡檢/補登紀錄已成功儲存並歸檔！"
+            )
             st.session_state.page = "export"
             st.rerun()
 
-    if st.button("🔄 重新設定基本資料與時段", use_container_width=True):
+    if st.button("🔄 重新設定基本資料", use_container_width=True):
         st.session_state.page = "login"
         st.rerun()
 
