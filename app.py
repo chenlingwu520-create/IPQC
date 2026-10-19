@@ -16,102 +16,81 @@ if "meta" not in st.session_state:
     st.session_state.meta = {}
 if "submitted_records" not in st.session_state:
     st.session_state.submitted_records = []
+if "daily_history" not in st.session_state:
+    # 記錄今天各批號已經完成的項目，跨時段自動提供參考但不鎖死
+    st.session_state.daily_history = {}
 
 # --- 1. 登入與巡檢基本設定頁面 ---
 if st.session_state.page == "login":
     st.title("🏭 IPQC 行動巡檢系統")
-    st.markdown("### 請設定本次檢驗基本資訊")
+    st.markdown("### 請設定本次巡檢基本資訊與時段")
 
     with st.form("login_form"):
-        inspector = st.text_input("檢驗人員", value="")
+        inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
+        session_time = st.selectbox(
+            "巡檢時段", ["上午場 (First Half)", "下午場 (Second Half)"]
+        )
         line = st.selectbox("產線", ["AKC"])
         model = st.selectbox("機種", ["BLM243"])
-        lot_no = st.text_input("生產批號 / 批量", value="")
+        lot_no = st.text_input("生產批號 / 批量", value="LOT-20261016-01")
 
         submitted = st.form_submit_button("🚀 進入巡檢主選單")
         if submitted:
             st.session_state.meta = {
                 "inspector": inspector,
                 "shift": shift,
+                "session_time": session_time,
                 "line": line,
                 "model": model,
                 "lot_no": lot_no,
             }
             st.session_state.inspection_data = {}
+
+            # 智慧帶入今日已完成的紀錄（作為參考，不強制鎖死）
+            key_prefix = f"{lot_no}_{datetime.date.today()}"
+            for k, v in st.session_state.daily_history.items():
+                if k.startswith(key_prefix):
+                    item_no = int(k.split("_")[-1])
+                    st.session_state.inspection_data[item_no] = v
+
             st.session_state.page = "dashboard"
             st.rerun()
 
-# --- 2. 主選單儀表板 (16項清單，隨點隨填，不卡關) ---
+# --- 2. 主選單儀表板 (彈性巡檢、不鎖死) ---
 elif st.session_state.page == "dashboard":
     meta = st.session_state.meta
     st.title(f"📋 {meta['line']}產線 - {meta['model']} 巡檢選單")
     st.caption(
-        f"人員：{meta['inspector']} | 班別：{meta['shift']} | 批號：{meta['lot_no']}"
+        f"人員：{meta['inspector']} | 班別：{meta['shift']} ({meta['session_time']}) | 批號：{meta['lot_no']}"
     )
 
-    # 16項檢驗項目完整定義 (包含拆分後的堆疊角度第一、二、三層)
+    # 16項檢驗項目定義 (包含頻率屬性)
     items_def = [
-        (1, "厚度", "高度規", "6x 2.18~2.58mm", "numeric", 6, 2.18, 2.58),
-        (
-            2,
-            "三相端子點焊脫拔力",
-            "拉力計",
-            "3x 10 Kgf Min",
-            "numeric",
-            3,
-            10.0,
-            999.0,
-        ),
-        (3, "定部扭轉脫拔力", "扭力板手", "20 Nm Min", "numeric", 1, 20.0, 999.0),
-        (4, "磁鐵脫拔力", "萬材機", "5 Kgf Min", "numeric", 1, 5.0, 999.0),
-        (
-            5,
-            "軸與轉子堆疊角度(第一層)",
-            "投影機",
-            "0°±0.25°",
-            "numeric",
-            1,
-            -0.25,
-            0.25,
-        ),
-        (
-            6,
-            "軸與轉子堆疊角度(第二層)",
-            "投影機",
-            "5.5°±0.25°",
-            "numeric",
-            1,
-            5.25,
-            5.75,
-        ),
-        (
-            7,
-            "軸與轉子堆疊角度(第三層)",
-            "投影機",
-            "11°±0.25°",
-            "numeric",
-            1,
-            10.75,
-            11.25,
-        ),
-        (8, "皮帶輪扭轉脫拔力", "扭力板手", "20Nm Min", "numeric", 1, 20.0, 999.0),
-        (9, "三相端子高度", "高度規", "3x 24.2~25.2mm", "numeric", 3, 24.2, 25.2),
-        (10, "皮帶輪壓入尺寸", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8),
-        (11, "皮帶輪高度", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8),
-        (12, "馬達高度", "高度規", "105.2 ± 0.4mm", "numeric", 1, 104.8, 105.6),
-        (13, "位置度", "CMM", "依圖面規範", "numeric", 1, 0.0, 999.0),
-        (14, "熱合後本體外徑量測", "游標尺", "63±0.3 mm", "numeric", 1, 62.7, 63.3),
-        (15, "標籤確認", "目視檢查", "標籤與外箱相同", "visual", 1, 0, 0),
-        (16, "OP5090清潔度檢查", "光學顯微鏡", "SPEC TP401300-B", "visual", 1, 0, 0),
-        (17, "OP7035清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0),
-        (18, "OP7190清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0),
+        (1, "厚度", "高度規", "6x 2.18~2.58mm", "numeric", 6, 2.18, 2.58, "every_session"),
+        (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "every_session"),
+        (3, "定部扭轉脫拔力", "扭力板手", "20 Nm Min", "numeric", 1, 20.0, 999.0, "once_day"),
+        (4, "磁鐵脫拔力", "萬材機", "5 Kgf Min", "numeric", 1, 5.0, 999.0, "once_day"),
+        (5, "軸與轉子堆疊角度(第一層)", "投影機", "0°±0.25°", "numeric", 1, -0.25, 0.25, "every_session"),
+        (6, "軸與轉子堆疊角度(第二層)", "投影機", "5.5°±0.25°", "numeric", 1, 5.25, 5.75, "every_session"),
+        (7, "軸與轉子堆疊角度(第三層)", "投影機", "11°±0.25°", "numeric", 1, 10.75, 11.25, "every_session"),
+        (8, "皮帶輪扭轉脫拔力", "扭力板手", "20Nm Min", "numeric", 1, 20.0, 999.0, "once_day"),
+        (9, "三相端子高度", "高度規", "3x 24.2~25.2mm", "numeric", 3, 24.2, 25.2, "every_session"),
+        (10, "皮帶輪壓入尺寸", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8, "every_session"),
+        (11, "皮帶輪高度", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8, "every_session"),
+        (12, "馬達高度", "高度規", "105.2 ± 0.4mm", "numeric", 1, 104.8, 105.6, "every_session"),
+        (13, "位置度", "CMM", "依圖面規範", "numeric", 1, 0.0, 999.0, "once_day"),
+        (14, "熱合後本體外徑量測", "游標尺", "63±0.3 mm", "numeric", 1, 62.7, 63.3, "every_session"),
+        (15, "標籤確認", "目視檢查", "標籤與外箱相同", "visual", 1, 0, 0, "every_session"),
+        (16, "OP5090清潔度檢查", "光學顯微鏡", "SPEC TP401300-B", "visual", 1, 0, 0, "periodic"),
+        (17, "OP7035清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0, "periodic"),
+        (18, "OP7190清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0, "periodic"),
     ]
 
     total_items = len(items_def)
 
-    # 確保所有項目皆有初始化狀態（內建防呆）
-    for no, name, method, spec, itype, pts, min_v, max_v in items_def:
+    # 初始化防呆
+    for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
         if no not in st.session_state.inspection_data:
             st.session_state.inspection_data[no] = {
                 "status": "未填寫",
@@ -129,10 +108,10 @@ elif st.session_state.page == "dashboard":
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
     st.info(
-        "💡 提示：您可以依照個人習慣自由點選下方項目填寫，隨時可返回或修改。"
+        "💡 提示：系統支援彈性覆蓋與隨時補登。一天一次或週期性項目您可以依實際進度隨時點進去修改！"
     )
 
-    for no, name, method, spec, itype, pts, min_v, max_v in items_def:
+    for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
         status = st.session_state.inspection_data[no]["status"]
         if status == "OK":
             badge = "🟢 OK"
@@ -141,10 +120,16 @@ elif st.session_state.page == "dashboard":
         else:
             badge = "⚪ 未填"
 
+        freq_label = {
+            "every_session": "🔥 每場必驗",
+            "once_day": "⭐ 一天一次",
+            "periodic": "🔬 週期補登",
+        }.get(freq, "")
+
         c1, c2, c3 = st.columns([3, 1.5, 1.5])
         with c1:
             st.markdown(f"**{no}. {name}**")
-            st.caption(f"{method} | {spec}")
+            st.caption(f"{method} | {spec} | [{freq_label}]")
         with c2:
             st.markdown(f"**{badge}**")
         with c3:
@@ -157,15 +142,16 @@ elif st.session_state.page == "dashboard":
                     "pts": pts,
                     "min": min_v,
                     "max": max_v,
+                    "freq": freq,
                 }
                 st.session_state.page = "detail"
                 st.rerun()
         st.divider()
 
-    # 底部送出區
-    if completed_count == total_items:
+    # 送出區
+    if completed_count > 0:
         if st.button(
-            "🚀 全部完成，正式送出並產生 Raw Data",
+            "🚀 確認送出本次巡檢紀錄並產生 Raw Data",
             type="primary",
             use_container_width=True,
         ):
@@ -174,39 +160,43 @@ elif st.session_state.page == "dashboard":
                 f"REC-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
             )
 
+            key_prefix = f"{meta['lot_no']}_{datetime.date.today()}"
             for item_no, data in st.session_state.inspection_data.items():
-                for idx, val in enumerate(data["values"]):
-                    st.session_state.submitted_records.append(
-                        {
-                            "紀錄編號": rec_id,
-                            "檢驗時間": current_time,
-                            "檢驗人員": meta["inspector"],
-                            "班別": meta["shift"],
-                            "產線": meta["line"],
-                            "機種": meta["model"],
-                            "批號": meta["lot_no"],
-                            "項次": item_no,
-                            "量測點/型態": f"點 {idx+1}"
-                            if isinstance(val, (int, float))
-                            else "目視檢查",
-                            "實測值/結果": val,
-                            "判定結果": data["status"],
-                            "異常備註": data["remark"],
-                        }
-                    )
-            st.success("🎉 檢驗紀錄已成功儲存！")
+                if data["status"] in ["OK", "NG"]:
+                    # 更新當日歷史紀錄，供後續時段參考
+                    st.session_state.daily_history[
+                        f"{key_prefix}_{item_no}"
+                    ] = data
+
+                    for idx, val in enumerate(data["values"]):
+                        st.session_state.submitted_records.append(
+                            {
+                                "紀錄編號": rec_id,
+                                "檢驗時間": current_time,
+                                "檢驗人員": meta["inspector"],
+                                "班別": meta["shift"],
+                                "時段": meta["session_time"],
+                                "產線": meta["line"],
+                                "機種": meta["model"],
+                                "批號": meta["lot_no"],
+                                "項次": item_no,
+                                "量測點/型態": f"點 {idx+1}"
+                                if isinstance(val, (int, float))
+                                else "目視檢查",
+                                "實測值/結果": val,
+                                "判定結果": data["status"],
+                                "異常備註": data["remark"],
+                            }
+                        )
+            st.success("🎉 本次巡檢紀錄已成功儲存！")
             st.session_state.page = "export"
             st.rerun()
-    else:
-        st.warning(
-            f"⚠️ 還有 {total_items - completed_count} 項尚未填寫完畢，填完後即可送出。"
-        )
 
-    if st.button("🔄 重新設定基本資料", use_container_width=True):
+    if st.button("🔄 重新設定基本資料與時段", use_container_width=True):
         st.session_state.page = "login"
         st.rerun()
 
-# --- 3. 單一項目填寫與自動判定頁面 ---
+# --- 3. 單一項目填寫頁面 ---
 elif st.session_state.page == "detail":
     cur = st.session_state.current_item
     st.subheader(f"📝 填寫：項次 {cur['no']} - {cur['name']}")
@@ -273,7 +263,7 @@ elif st.session_state.page == "detail":
 # --- 4. 數據匯出與完成頁面 ---
 elif st.session_state.page == "export":
     st.title("📊 Raw Data 檢驗資料庫")
-    st.success("本次巡檢數據已成功轉化為結構化 Raw Data！")
+    st.success("巡檢數據已成功匯入結構化 Raw Data！")
 
     df_res = pd.DataFrame(st.session_state.submitted_records)
     st.dataframe(df_res, use_container_width=True)
