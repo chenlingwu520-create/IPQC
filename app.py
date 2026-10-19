@@ -17,12 +17,13 @@ if "meta" not in st.session_state:
 if "submitted_records" not in st.session_state:
     st.session_state.submitted_records = []
 if "daily_history" not in st.session_state:
+    # 紀錄格式: { "LOT_日期_項次": data }
     st.session_state.daily_history = {}
 
 # --- 1. 登入與巡檢基本設定頁面 ---
 if st.session_state.page == "login":
     st.title("🏭 IPQC 行動巡檢系統")
-    st.markdown("### 請設定本次巡檢基本資訊與日期")
+    st.markdown("### 請設定本次巡檢基本資訊與時段")
 
     with st.form("login_form"):
         inspector = st.text_input("檢驗人員", value="")
@@ -50,17 +51,20 @@ if st.session_state.page == "login":
             }
             st.session_state.inspection_data = {}
 
-            # 載入該批號在該選擇日期的歷史紀錄
+            # 載入邏輯：
+            # 如果是下午場，只自動帶入「一天一次」或「週期性」的項目；「每場必驗」項目保持空白讓下午重測
             key_prefix = f"{lot_no}_{target_date}"
             for k, v in st.session_state.daily_history.items():
                 if k.startswith(key_prefix):
                     item_no = int(k.split("_")[-1])
-                    st.session_state.inspection_data[item_no] = v
+                    # 辨別該項目的頻率屬性（對應後面定義：3, 4, 8, 13 為一天一次；16, 17, 18 為週期性）
+                    if item_no in [3, 4, 8, 13, 16, 17, 18]:
+                        st.session_state.inspection_data[item_no] = v
 
             st.session_state.page = "dashboard"
             st.rerun()
 
-# --- 2. 主選單儀表板 (覆蓋模式：同日同批同項只留最新) ---
+# --- 2. 主選單儀表板 ---
 elif st.session_state.page == "dashboard":
     meta = st.session_state.meta
     st.title(f"📋 {meta['line']}產線 - {meta['model']} 巡檢選單")
@@ -77,7 +81,11 @@ elif st.session_state.page == "dashboard":
         for k, v in st.session_state.daily_history.items():
             if k.startswith(key_prefix):
                 item_no = int(k.split("_")[-1])
-                st.session_state.inspection_data[item_no] = v
+                if meta["session_time"] == "下午場 (Second Half)":
+                    if item_no in [3, 4, 8, 13, 16, 17, 18]:
+                        st.session_state.inspection_data[item_no] = v
+                else:
+                    st.session_state.inspection_data[item_no] = v
         st.rerun()
 
     st.caption(
@@ -124,7 +132,9 @@ elif st.session_state.page == "dashboard":
         completed_count / total_items,
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
-    
+    st.info(
+        "💡 提示：下午場登入時，『每場必驗』項目已自動清空以便重新量測；『一天一次』項目會保留上午結果供參考。"
+    )
 
     for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
         status = st.session_state.inspection_data[no]["status"]
@@ -163,7 +173,7 @@ elif st.session_state.page == "dashboard":
                 st.rerun()
         st.divider()
 
-    # 送出區（核心覆蓋邏輯）
+    # 送出區（覆蓋邏輯）
     if completed_count > 0:
         if st.button(
             "🚀 確認送出並更新 Raw Data (覆蓋舊檔)",
@@ -176,23 +186,22 @@ elif st.session_state.page == "dashboard":
 
             for item_no, data in st.session_state.inspection_data.items():
                 if data["status"] in ["OK", "NG"]:
-                    # 1. 存入當日歷史記憶
                     st.session_state.daily_history[
                         f"{key_prefix}_{item_no}"
                     ] = data
 
-                    # 2. 覆蓋邏輯：先移除該「指定日期 + 批號 + 項次」的舊紀錄
+                    # 覆蓋邏輯：移除同日、同批、同項次且「同時段」的舊紀錄，確保早下午數據各自獨立或覆蓋正確
                     st.session_state.submitted_records = [
                         r
                         for r in st.session_state.submitted_records
                         if not (
                             str(r.get("指定檢驗日期")) == target_date_str
-                            and str(r.get("批號")) == meta["lot_no"]
+                            and str(r.get("批號")) == meta["lot_no']
                             and r.get("項次") == item_no
+                            and str(r.get("時段")) == meta["session_time"]
                         )
                     ]
 
-                    # 3. 寫入最新的量測點數據
                     for idx, val in enumerate(data["values"]):
                         st.session_state.submitted_records.append(
                             {
@@ -215,7 +224,7 @@ elif st.session_state.page == "dashboard":
                         )
 
             st.success(
-                f"🎉 【{target_date_str}】的巡檢資料已成功更新並覆蓋至 Raw Data！"
+                f"🎉 【{target_date_str} - {meta['session_time']}】的巡檢資料已成功更新！"
             )
             st.session_state.page = "export"
             st.rerun()
