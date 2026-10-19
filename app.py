@@ -124,9 +124,7 @@ elif st.session_state.page == "dashboard":
         completed_count / total_items,
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
-    st.info(
-        "💡 提示：本系統採用覆蓋模式，同一天、同一批號重複送出時會自動更新為最新數據，方便直接匯入簽核表！"
-    )
+    
 
     for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
         status = st.session_state.inspection_data[no]["status"]
