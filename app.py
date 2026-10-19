@@ -23,13 +23,13 @@ if st.session_state.page == "login":
     st.markdown("### 請設定本次檢驗基本資訊")
 
     with st.form("login_form"):
-        inspector = st.text_input("檢驗人員", value="")
+        inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
         line = st.selectbox("產線", ["AKC"])
         model = st.selectbox("機種", ["BLM243"])
         lot_no = st.text_input("生產批號 / 批量", value="LOT-20261016-01")
 
-        submitted = st.form_submit_button("🚀 進入 16 項巡檢主選單")
+        submitted = st.form_submit_button("🚀 進入巡檢主選單")
         if submitted:
             st.session_state.meta = {
                 "inspector": inspector,
@@ -38,14 +38,7 @@ if st.session_state.page == "login":
                 "model": model,
                 "lot_no": lot_no,
             }
-            # 初始化 16 個項目狀態
-            for i in range(1, 17):
-                if i not in st.session_state.inspection_data:
-                    st.session_state.inspection_data[i] = {
-                        "status": "未填寫",
-                        "values": [],
-                        "remark": "",
-                    }
+            st.session_state.inspection_data = {}
             st.session_state.page = "dashboard"
             st.rerun()
 
@@ -57,21 +50,7 @@ elif st.session_state.page == "dashboard":
         f"人員：{meta['inspector']} | 班別：{meta['shift']} | 批號：{meta['lot_no']}"
     )
 
-    # 計算完成進度
-    completed_count = sum(
-        1
-        for v in st.session_state.inspection_data.values()
-        if v["status"] in ["OK", "NG"]
-    )
-    st.progress(
-        completed_count / 16,
-        text=f"總進度：已完成 {completed_count} / 16 項",
-    )
-    st.info(
-        "💡 提示：您可以依照個人習慣自由點選下方項目填寫，隨時可返回或修改。"
-    )
-
-    # 16項檢驗項目完整定義
+    # 16項檢驗項目完整定義 (包含拆分後的堆疊角度第一、二、三層)
     items_def = [
         (1, "厚度", "高度規", "6x 2.18~2.58mm", "numeric", 6, 2.18, 2.58),
         (
@@ -86,21 +65,72 @@ elif st.session_state.page == "dashboard":
         ),
         (3, "定部扭轉脫拔力", "扭力板手", "20 Nm Min", "numeric", 1, 20.0, 999.0),
         (4, "磁鐵脫拔力", "萬材機", "5 Kgf Min", "numeric", 1, 5.0, 999.0),
-        (5, "軸與轉子堆疊角度(第一層)", "投影機", "0°±0.25°", "numeric", 1, -0.25, 0.25),
-        (5.1, "軸與轉子堆疊角度(第二層)", "投影機", "5.5°±0.25°", "numeric", 1, 5.25, 5.75),
-        (5.2, "軸與轉子堆疊角度(第三層)", "投影機", "11°±0.25°", "numeric", 1, 10.75, 11.25),
-        (6, "皮帶輪扭轉脫拔力", "扭力板手", "20Nm Min", "numeric", 1, 20.0, 999.0),
-        (7, "三相端子高度", "高度規", "3x 24.2~25.2mm", "numeric", 3, 24.2, 25.2),
-        (8, "皮帶輪壓入尺寸", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8),
-        (9, "皮帶輪高度", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8),
-        (10, "馬達高度", "高度規", "105.2 ± 0.4mm", "numeric", 1, 104.8, 105.6),
-        (11, "位置度", "CMM", "依圖面規範", "numeric", 1, 0.0, 999.0),
-        (12, "熱合後本體外徑量測", "游標尺", "63±0.3 mm", "numeric", 1, 62.7, 63.3),
-        (13, "標籤確認", "目視檢查", "標籤與外箱相同", "visual", 1, 0, 0),
-        (14, "OP5090清潔度檢查", "光學顯微鏡", "SPEC TP401300-B", "visual", 1, 0, 0),
-        (15, "OP7035清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0),
-        (16, "OP7190清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0),
+        (
+            5,
+            "軸與轉子堆疊角度(第一層)",
+            "投影機",
+            "0°±0.25°",
+            "numeric",
+            1,
+            -0.25,
+            0.25,
+        ),
+        (
+            6,
+            "軸與轉子堆疊角度(第二層)",
+            "投影機",
+            "5.5°±0.25°",
+            "numeric",
+            1,
+            5.25,
+            5.75,
+        ),
+        (
+            7,
+            "軸與轉子堆疊角度(第三層)",
+            "投影機",
+            "11°±0.25°",
+            "numeric",
+            1,
+            10.75,
+            11.25,
+        ),
+        (8, "皮帶輪扭轉脫拔力", "扭力板手", "20Nm Min", "numeric", 1, 20.0, 999.0),
+        (9, "三相端子高度", "高度規", "3x 24.2~25.2mm", "numeric", 3, 24.2, 25.2),
+        (10, "皮帶輪壓入尺寸", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8),
+        (11, "皮帶輪高度", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8),
+        (12, "馬達高度", "高度規", "105.2 ± 0.4mm", "numeric", 1, 104.8, 105.6),
+        (13, "位置度", "CMM", "依圖面規範", "numeric", 1, 0.0, 999.0),
+        (14, "熱合後本體外徑量測", "游標尺", "63±0.3 mm", "numeric", 1, 62.7, 63.3),
+        (15, "標籤確認", "目視檢查", "標籤與外箱相同", "visual", 1, 0, 0),
+        (16, "OP5090清潔度檢查", "光學顯微鏡", "SPEC TP401300-B", "visual", 1, 0, 0),
+        (17, "OP7035清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0),
+        (18, "OP7190清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0),
     ]
+
+    total_items = len(items_def)
+
+    # 確保所有項目皆有初始化狀態（內建防呆）
+    for no, name, method, spec, itype, pts, min_v, max_v in items_def:
+        if no not in st.session_state.inspection_data:
+            st.session_state.inspection_data[no] = {
+                "status": "未填寫",
+                "values": [],
+                "remark": "",
+            }
+
+    completed_count = sum(
+        1
+        for v in st.session_state.inspection_data.values()
+        if v["status"] in ["OK", "NG"]
+    )
+    st.progress(
+        completed_count / total_items,
+        text=f"總進度：已完成 {completed_count} / {total_items} 項",
+    )
+    st.info(
+        "💡 提示：您可以依照個人習慣自由點選下方項目填寫，隨時可返回或修改。"
+    )
 
     for no, name, method, spec, itype, pts, min_v, max_v in items_def:
         status = st.session_state.inspection_data[no]["status"]
@@ -133,9 +163,9 @@ elif st.session_state.page == "dashboard":
         st.divider()
 
     # 底部送出區
-    if completed_count == 16:
+    if completed_count == total_items:
         if st.button(
-            "🚀 16項全部完成，正式送出並產生 Raw Data",
+            "🚀 全部完成，正式送出並產生 Raw Data",
             type="primary",
             use_container_width=True,
         ):
@@ -169,7 +199,7 @@ elif st.session_state.page == "dashboard":
             st.rerun()
     else:
         st.warning(
-            f"⚠️ 還有 {16 - completed_count} 項尚未填寫完畢，填完後即可送出。"
+            f"⚠️ 還有 {total_items - completed_count} 項尚未填寫完畢，填完後即可送出。"
         )
 
     if st.button("🔄 重新設定基本資料", use_container_width=True):
