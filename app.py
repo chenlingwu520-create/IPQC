@@ -17,7 +17,7 @@ if "meta" not in st.session_state:
 if "submitted_records" not in st.session_state:
     st.session_state.submitted_records = []
 if "daily_history" not in st.session_state:
-    # 紀錄格式: { "LOT_日期_項次": data }
+    # 紀錄格式: { "LOT_日期_時段_項次": data }
     st.session_state.daily_history = {}
 
 # --- 1. 登入與巡檢基本設定頁面 ---
@@ -26,7 +26,7 @@ if st.session_state.page == "login":
     st.markdown("### 請設定本次巡檢基本資訊與時段")
 
     with st.form("login_form"):
-        inspector = st.text_input("檢驗人員", value="")
+        inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
         session_time = st.selectbox(
             "巡檢時段", ["上午場 (First Half)", "下午場 (Second Half)"]
@@ -36,7 +36,7 @@ if st.session_state.page == "login":
         )
         line = st.selectbox("產線", ["AKC"])
         model = st.selectbox("機種", ["BLM243"])
-        lot_no = st.text_input("批號 / 批量", value="")
+        lot_no = st.text_input("生產批號 / 批量", value="LOT-20261016-01")
 
         submitted = st.form_submit_button("🚀 進入巡檢主選單")
         if submitted:
@@ -51,15 +51,27 @@ if st.session_state.page == "login":
             }
             st.session_state.inspection_data = {}
 
-            # 載入邏輯：
-            # 如果是下午場，只自動帶入「一天一次」或「週期性」的項目；「每場必驗」項目保持空白讓下午重測
-            key_prefix = f"{lot_no}_{target_date}"
-            for k, v in st.session_state.daily_history.items():
-                if k.startswith(key_prefix):
-                    item_no = int(k.split("_")[-1])
-                    # 辨別該項目的頻率屬性（對應後面定義：3, 4, 8, 13 為一天一次；16, 17, 18 為週期性）
-                    if item_no in [3, 4, 8, 13, 16, 17, 18]:
+            # 精準歷史載入邏輯：
+            # 1. 先嘗試找「同批號 + 同日期 + 同時段」的完整紀錄 (同一時段再進來，資料全保留)
+            exact_key_prefix = f"{lot_no}_{target_date}_{session_time}"
+            has_same_session_record = any(
+                k.startswith(exact_key_prefix)
+                for k in st.session_state.daily_history.keys()
+            )
+
+            if has_same_session_record:
+                for k, v in st.session_state.daily_history.items():
+                    if k.startswith(exact_key_prefix):
+                        item_no = int(k.split("_")[-1])
                         st.session_state.inspection_data[item_no] = v
+            else:
+                # 2. 如果是新時段，載入當天已有紀錄中的「一天一次/週期性」項目；「每場必驗」保持空白
+                day_key_prefix = f"{lot_no}_{target_date}"
+                for k, v in st.session_state.daily_history.items():
+                    if k.startswith(day_key_prefix):
+                        item_no = int(k.split("_")[-1])
+                        if item_no in [3, 4, 8, 13, 16, 17, 18]:
+                            st.session_state.inspection_data[item_no] = v
 
             st.session_state.page = "dashboard"
             st.rerun()
@@ -77,15 +89,26 @@ elif st.session_state.page == "dashboard":
     if selected_date != meta.get("inspection_date"):
         meta["inspection_date"] = selected_date
         st.session_state.inspection_data = {}
-        key_prefix = f"{meta['lot_no']}_{selected_date}"
-        for k, v in st.session_state.daily_history.items():
-            if k.startswith(key_prefix):
-                item_no = int(k.split("_")[-1])
-                if meta["session_time"] == "下午場 (Second Half)":
+        exact_key_prefix = (
+            f"{meta['lot_no']}_{selected_date}_{meta['session_time']}"
+        )
+        has_same_session_record = any(
+            k.startswith(exact_key_prefix)
+            for k in st.session_state.daily_history.keys()
+        )
+
+        if has_same_session_record:
+            for k, v in st.session_state.daily_history.items():
+                if k.startswith(exact_key_prefix):
+                    item_no = int(k.split("_")[-1])
+                    st.session_state.inspection_data[item_no] = v
+        else:
+            day_key_prefix = f"{meta['lot_no']}_{selected_date}"
+            for k, v in st.session_state.daily_history.items():
+                if k.startswith(day_key_prefix):
+                    item_no = int(k.split("_")[-1])
                     if item_no in [3, 4, 8, 13, 16, 17, 18]:
                         st.session_state.inspection_data[item_no] = v
-                else:
-                    st.session_state.inspection_data[item_no] = v
         st.rerun()
 
     st.caption(
@@ -132,7 +155,9 @@ elif st.session_state.page == "dashboard":
         completed_count / total_items,
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
-    
+    st.info(
+        "💡 提示：再次進入『同一時段』會完整載入已填資料；若『換時段』則自動清空每場必驗項目以利重測。"
+    )
 
     for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
         status = st.session_state.inspection_data[no]["status"]
@@ -171,7 +196,7 @@ elif st.session_state.page == "dashboard":
                 st.rerun()
         st.divider()
 
-    # 送出區（覆蓋邏輯）
+    # 送出區（精準時段覆蓋邏輯）
     if completed_count > 0:
         if st.button(
             "🚀 確認送出並更新 Raw Data (覆蓋舊檔)",
@@ -180,15 +205,18 @@ elif st.session_state.page == "dashboard":
         ):
             current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             target_date_str = str(meta["inspection_date"])
-            key_prefix = f"{meta['lot_no']}_{target_date_str}"
+            exact_key_prefix = (
+                f"{meta['lot_no']}_{target_date_str}_{meta['session_time']}"
+            )
 
             for item_no, data in st.session_state.inspection_data.items():
                 if data["status"] in ["OK", "NG"]:
+                    # 包含時段在內的歷史紀錄儲存
                     st.session_state.daily_history[
-                        f"{key_prefix}_{item_no}"
+                        f"{exact_key_prefix}_{item_no}"
                     ] = data
 
-                    # 覆蓋邏輯：移除同日、同批、同項次且「同時段」的舊紀錄，確保早下午數據各自獨立或覆蓋正確
+                    # 移除同日、同批、同項次且「同時段」的舊紀錄，確保覆蓋正確
                     st.session_state.submitted_records = [
                         r
                         for r in st.session_state.submitted_records
@@ -222,7 +250,7 @@ elif st.session_state.page == "dashboard":
                         )
 
             st.success(
-                f"🎉 【{target_date_str} - {meta['session_time']}】的巡檢資料已成功更新！"
+                f"🎉 【{target_date_str} - {meta['session_time']}】的巡檢資料已成功更新並歸檔！"
             )
             st.session_state.page = "export"
             st.rerun()
