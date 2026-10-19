@@ -23,11 +23,11 @@ if st.session_state.page == "login":
     st.markdown("### 請設定本次檢驗基本資訊")
 
     with st.form("login_form"):
-        inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
+        inspector = st.text_input("檢驗人員", value="")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
         line = st.selectbox("產線", ["AKC"])
         model = st.selectbox("機種", ["BLM243"])
-        lot_no = st.text_input("生產批號 / 批量", value="LOT-20261016-01")
+        lot_no = st.text_input("生產批號 / 批量", value="")
 
         submitted = st.form_submit_button("🚀 進入巡檢主選單")
         if submitted:
