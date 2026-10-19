@@ -196,7 +196,7 @@ elif st.session_state.page == "dashboard":
                         for r in st.session_state.submitted_records
                         if not (
                             str(r.get("指定檢驗日期")) == target_date_str
-                            and str(r.get("批號")) == meta["lot_no']
+                            and str(r.get("批號")) == meta["lot_no"]
                             and r.get("項次") == item_no
                             and str(r.get("時段")) == meta["session_time"]
                         )
