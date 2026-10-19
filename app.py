@@ -36,7 +36,7 @@ if st.session_state.page == "login":
         )
         line = st.selectbox("產線", ["AKC"])
         model = st.selectbox("機種", ["BLM243"])
-        lot_no = st.text_input("生產批號 / 批量", value="")
+        lot_no = st.text_input("批號 / 批量", value="")
 
         submitted = st.form_submit_button("🚀 進入巡檢主選單")
         if submitted:
