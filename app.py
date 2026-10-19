@@ -17,7 +17,6 @@ if "meta" not in st.session_state:
 if "submitted_records" not in st.session_state:
     st.session_state.submitted_records = []
 if "daily_history" not in st.session_state:
-    # 紀錄格式: { "LOT_日期_項次": data }
     st.session_state.daily_history = {}
 
 # --- 1. 登入與巡檢基本設定頁面 ---
@@ -26,18 +25,17 @@ if st.session_state.page == "login":
     st.markdown("### 請設定本次巡檢基本資訊與日期")
 
     with st.form("login_form"):
-        inspector = st.text_input("檢驗人員", value="")
+        inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
         session_time = st.selectbox(
             "巡檢時段", ["上午場 (First Half)", "下午場 (Second Half)"]
         )
-        # 登入時即可選擇檢驗日期（支援當日或歷史補登）
         target_date = st.date_input(
             "檢驗日期 (支援補登)", value=datetime.date.today()
         )
         line = st.selectbox("產線", ["AKC"])
         model = st.selectbox("機種", ["BLM243"])
-        lot_no = st.text_input("生產批號 / 批量", value="")
+        lot_no = st.text_input("生產批號 / 批量", value="LOT-20261016-01")
 
         submitted = st.form_submit_button("🚀 進入巡檢主選單")
         if submitted:
@@ -52,7 +50,7 @@ if st.session_state.page == "login":
             }
             st.session_state.inspection_data = {}
 
-            # 載入該批號在該選擇日期的歷史紀錄（支援補登帶入）
+            # 載入該批號在該選擇日期的歷史紀錄
             key_prefix = f"{lot_no}_{target_date}"
             for k, v in st.session_state.daily_history.items():
                 if k.startswith(key_prefix):
@@ -62,18 +60,16 @@ if st.session_state.page == "login":
             st.session_state.page = "dashboard"
             st.rerun()
 
-# --- 2. 主選單儀表板 (支援日期切換與補登) ---
+# --- 2. 主選單儀表板 (覆蓋模式：同日同批同項只留最新) ---
 elif st.session_state.page == "dashboard":
     meta = st.session_state.meta
     st.title(f"📋 {meta['line']}產線 - {meta['model']} 巡檢選單")
 
-    # 讓檢驗人員在主畫面也能隨時切換或確認檢驗日期
     selected_date = st.date_input(
         "📅 當前檢驗/補登日期",
         value=meta.get("inspection_date", datetime.date.today()),
         key="dashboard_date_picker",
     )
-    # 如果在主畫面切換了日期，同步更新 meta 並重新載入該日期的資料
     if selected_date != meta.get("inspection_date"):
         meta["inspection_date"] = selected_date
         st.session_state.inspection_data = {}
@@ -88,7 +84,6 @@ elif st.session_state.page == "dashboard":
         f"人員：{meta['inspector']} | 班別：{meta['shift']} ({meta['session_time']}) | 批號：{meta['lot_no']}"
     )
 
-    # 16項檢驗項目定義 (包含頻率屬性)
     items_def = [
         (1, "厚度", "高度規", "6x 2.18~2.58mm", "numeric", 6, 2.18, 2.58, "every_session"),
         (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "every_session"),
@@ -112,7 +107,6 @@ elif st.session_state.page == "dashboard":
 
     total_items = len(items_def)
 
-    # 初始化防呆
     for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
         if no not in st.session_state.inspection_data:
             st.session_state.inspection_data[no] = {
@@ -131,7 +125,7 @@ elif st.session_state.page == "dashboard":
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
     st.info(
-        "💡 提示：若需補登過去日期的資料，可直接上方調整『檢驗/補登日期』後填寫！"
+        "💡 提示：本系統採用覆蓋模式，同一天、同一批號重複送出時會自動更新為最新數據，方便直接匯入簽核表！"
     )
 
     for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
@@ -171,32 +165,40 @@ elif st.session_state.page == "dashboard":
                 st.rerun()
         st.divider()
 
-    # 送出區
+    # 送出區（核心覆蓋邏輯）
     if completed_count > 0:
         if st.button(
-            "🚀 確認送出巡檢紀錄並更新 Raw Data",
+            "🚀 確認送出並更新 Raw Data (覆蓋舊檔)",
             type="primary",
             use_container_width=True,
         ):
             current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            rec_id = (
-                f"REC-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
-            )
             target_date_str = str(meta["inspection_date"])
-
             key_prefix = f"{meta['lot_no']}_{target_date_str}"
+
             for item_no, data in st.session_state.inspection_data.items():
                 if data["status"] in ["OK", "NG"]:
-                    # 記錄到當日歷史中（依選擇的補登日期歸檔）
+                    # 1. 存入當日歷史記憶
                     st.session_state.daily_history[
                         f"{key_prefix}_{item_no}"
                     ] = data
 
+                    # 2. 覆蓋邏輯：先移除該「指定日期 + 批號 + 項次」的舊紀錄
+                    st.session_state.submitted_records = [
+                        r
+                        for r in st.session_state.submitted_records
+                        if not (
+                            str(r.get("指定檢驗日期")) == target_date_str
+                            and str(r.get("批號")) == meta["lot_no"]
+                            and r.get("項次") == item_no
+                        )
+                    ]
+
+                    # 3. 寫入最新的量測點數據
                     for idx, val in enumerate(data["values"]):
                         st.session_state.submitted_records.append(
                             {
-                                "紀錄編號": rec_id,
-                                "系統送出時間": current_time,
+                                "更新時間": current_time,
                                 "指定檢驗日期": target_date_str,
                                 "檢驗人員": meta["inspector"],
                                 "班別": meta["shift"],
@@ -213,8 +215,9 @@ elif st.session_state.page == "dashboard":
                                 "異常備註": data["remark"],
                             }
                         )
+
             st.success(
-                f"🎉 【{target_date_str}】的巡檢/補登紀錄已成功儲存並歸檔！"
+                f"🎉 【{target_date_str}】的巡檢資料已成功更新並覆蓋至 Raw Data！"
             )
             st.session_state.page = "export"
             st.rerun()
@@ -290,7 +293,7 @@ elif st.session_state.page == "detail":
 # --- 4. 數據匯出與完成頁面 ---
 elif st.session_state.page == "export":
     st.title("📊 Raw Data 檢驗資料庫")
-    st.success("巡檢數據已成功匯入結構化 Raw Data！")
+    st.success("資料已成功整理並對齊格式！")
 
     df_res = pd.DataFrame(st.session_state.submitted_records)
     st.dataframe(df_res, use_container_width=True)
