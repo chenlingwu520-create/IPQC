@@ -132,9 +132,7 @@ elif st.session_state.page == "dashboard":
         completed_count / total_items,
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
-    st.info(
-        "💡 提示：下午場登入時，『每場必驗』項目已自動清空以便重新量測；『一天一次』項目會保留上午結果供參考。"
-    )
+    
 
     for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
         status = st.session_state.inspection_data[no]["status"]
