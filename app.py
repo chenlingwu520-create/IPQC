@@ -16,8 +16,6 @@ if "meta" not in st.session_state:
     st.session_state.meta = {}
 if "submitted_records" not in st.session_state:
     st.session_state.submitted_records = {}
-if "focus_item" not in st.session_state:
-    st.session_state.focus_item = None  # 用來記錄上次填寫的項次，以便返回時自動對焦
 
 # --- 1. 登入與巡檢基本設定頁面 ---
 if st.session_state.page == "login":
@@ -49,11 +47,10 @@ if st.session_state.page == "login":
                 "model": model,
             }
             st.session_state.inspection_data = {}
-            st.session_state.focus_item = None
             st.session_state.page = "dashboard"
             st.rerun()
 
-# --- 2. 主選單儀表板 ---
+# --- 2. 主選單儀表板（分組頁籤設計） ---
 elif st.session_state.page == "dashboard":
     meta = st.session_state.meta
     st.title(f"📋 {meta['line']}產線 - {meta['model']} 巡檢選單")
@@ -74,16 +71,16 @@ elif st.session_state.page == "dashboard":
     if selected_date_str != str(meta["inspection_date"]):
         meta["inspection_date"] = selected_date_str
         st.session_state.inspection_data = {}
-        st.session_state.focus_item = None
         st.rerun()
 
     st.caption(
         f"人員：{meta['inspector']} | 班別：{meta['shift']} ({meta['session_time']})"
     )
 
+    # 18 項完整定義
     items_def = [
         (1, "厚度", "高度規", "6x 2.18~2.58mm", "numeric", 6, 2.18, 2.58, "every_session"),
-        (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "once_day"),
+        (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "every_session"),
         (3, "定部扭轉脫拔力", "扭力板手", "20 Nm Min", "numeric", 1, 20.0, 999.0, "once_day"),
         (4, "磁鐵脫拔力", "萬材機", "5 Kgf Min", "numeric", 1, 5.0, 999.0, "once_day"),
         (5, "軸與轉子堆疊角度(第一層)", "投影機", "0°±0.25°", "numeric", 1, -0.25, 0.25, "every_session"),
@@ -102,9 +99,10 @@ elif st.session_state.page == "dashboard":
         (18, "OP7190清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0, "periodic"),
     ]
 
+    items_dict = {item[0]: item for item in items_def}
     total_items = len(items_def)
 
-    for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
+    for no in items_dict.keys():
         if no not in st.session_state.inspection_data:
             st.session_state.inspection_data[no] = {
                 "status": "未填寫",
@@ -121,61 +119,63 @@ elif st.session_state.page == "dashboard":
         completed_count / total_items,
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
+    st.markdown("---")
 
-    for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
-        item_info = st.session_state.inspection_data[no]
-        status = item_info["status"]
+    # 建立四大分組頁籤
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["📏 尺寸與高度", "💪 強度與扭力", "📐 角度與精度", "🔬 目視與清潔"]
+    )
 
-        if status == "OK":
-            badge = "🟢 OK"
-        elif status == "NG":
-            badge = "🔴 NG"
-        else:
-            badge = "⚪ 未填"
+    group_mapping = {
+        tab1: [1, 9, 10, 11, 12],
+        tab2: [2, 3, 4, 8],
+        tab3: [5, 6, 7, 13, 14],
+        tab4: [15, 16, 17, 18],
+    }
 
-        freq_label = {
-            "every_session": "🔥 每場必驗",
-            "once_day": "⭐ 一天一次",
-            "periodic": "🔬 週期補登",
-        }.get(freq, "")
+    for current_tab, item_nos in group_mapping.items():
+        with current_tab:
+            for no in item_nos:
+                item_def = items_dict[no]
+                _, name, method, spec, itype, pts, min_v, max_v, freq = item_def
 
-        # 建立 HTML 錨點，讓返回時能自動定位到該項次
-        st.markdown(f'<div id="item_{no}"></div>', unsafe_allow_html=True)
+                item_info = st.session_state.inspection_data[no]
+                status = item_info["status"]
 
-        c1, c2, c3 = st.columns([3, 1.8, 1.2])
-        with c1:
-            st.markdown(f"**{no}. {name}**")
-            st.caption(f"{method} | {spec} | [{freq_label}]")
-        with c2:
-            st.markdown(f"**{badge}**")
-        with c3:
-            if st.button("填寫", key=f"b_{no}", use_container_width=True):
-                st.session_state.current_item = {
-                    "no": no,
-                    "name": name,
-                    "spec": spec,
-                    "itype": itype,
-                    "pts": pts,
-                    "min": min_v,
-                    "max": max_v,
-                    "freq": freq,
-                }
-                st.session_state.focus_item = no  # 記住目前點擊的項次
-                st.session_state.page = "detail"
-                st.rerun()
-        st.divider()
+                if status == "OK":
+                    badge = "🟢 OK"
+                elif status == "NG":
+                    badge = "🔴 NG"
+                else:
+                    badge = "⚪ 未填"
 
-    # 如果有剛才填寫完返回的焦點項次，利用 st.fragment 或自動捲動標籤將畫面帶回該處
-    if st.session_state.focus_item:
-        f_no = st.session_state.focus_item
-        st.markdown(
-            f"""
-            <script>
-                window.location.hash = "#item_{f_no}";
-            </script>
-            """,
-            unsafe_allow_html=True,
-        )
+                freq_label = {
+                    "every_session": "🔥 每場必驗",
+                    "once_day": "⭐ 一天一次",
+                    "periodic": "🔬 週期補登",
+                }.get(freq, "")
+
+                c1, c2, c3 = st.columns([3, 1.8, 1.2])
+                with c1:
+                    st.markdown(f"**{no}. {name}**")
+                    st.caption(f"{method} | {spec} | [{freq_label}]")
+                with c2:
+                    st.markdown(f"**{badge}**")
+                with c3:
+                    if st.button("填寫", key=f"b_{no}", use_container_width=True):
+                        st.session_state.current_item = {
+                            "no": no,
+                            "name": name,
+                            "spec": spec,
+                            "itype": itype,
+                            "pts": pts,
+                            "min": min_v,
+                            "max": max_v,
+                            "freq": freq,
+                        }
+                        st.session_state.page = "detail"
+                        st.rerun()
+                st.divider()
 
     # 送出區
     if completed_count > 0:
@@ -312,6 +312,5 @@ elif st.session_state.page == "export":
         use_container_width=True,
     ):
         st.session_state.inspection_data = {}
-        st.session_state.focus_item = None
         st.session_state.page = "login"
         st.rerun()
