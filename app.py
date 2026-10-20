@@ -1,4 +1,5 @@
 import datetime
+import os
 import pandas as pd
 import streamlit as st
 
@@ -177,10 +178,10 @@ elif st.session_state.page == "dashboard":
                         st.rerun()
                 st.divider()
 
-    # 送出區
+    # 送出區（核心：點擊後自動存入桌面 raw data 資料夾）
     if completed_count > 0:
         if st.button(
-            "🚀 確認送出並更新 Raw Data (覆蓋舊檔)",
+            "🚀 確認送出並自動存入桌面 [raw data] 資料夾",
             type="primary",
             use_container_width=True,
         ):
@@ -213,8 +214,22 @@ elif st.session_state.page == "dashboard":
                             "異常備註": data["remark"],
                         }
 
+            # 🛠️ 自動寫入桌面 raw data 資料夾
+            df_res = pd.DataFrame(
+                list(st.session_state.submitted_records.values())
+            )
+            desktop_path = os.path.join(
+                os.path.expanduser("~"), "Desktop", "raw data"
+            )
+            os.makedirs(desktop_path, exist_ok=True)  # 若資料夾不存在自動建立
+
+            file_name = f"IPQC_RawData_{target_date_str}_{meta['session_time'].replace(' ', '_')}.csv"
+            file_path = os.path.join(desktop_path, file_name)
+
+            df_res.to_csv(file_path, index=False, encoding="utf-8-sig")
+
             st.success(
-                f"🎉 【{target_date_str} - {meta['session_time']}】的巡檢資料已成功更新並歸檔！"
+                f"🎉 【{target_date_str} - {meta['session_time']}】資料已成功送出，並自動存入桌面 [raw data]！"
             )
             st.session_state.page = "export"
             st.rerun()
@@ -292,14 +307,14 @@ elif st.session_state.page == "detail":
 # --- 4. 數據匯出與完成頁面 ---
 elif st.session_state.page == "export":
     st.title("📊 Raw Data 檢驗資料庫")
-    st.success("資料已成功整理並對齊格式！")
+    st.success("資料已成功自動存入桌面 [raw data] 資料夾！")
 
     df_res = pd.DataFrame(list(st.session_state.submitted_records.values()))
     st.dataframe(df_res, use_container_width=True)
 
     csv_data = df_res.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
-        label="📥 下載 Raw Data (CSV 報表)",
+        label="📥 額外備份下載 (CSV)",
         data=csv_data,
         file_name=f"IPQC_RawData_{datetime.date.today()}.csv",
         mime="text/csv",
