@@ -178,7 +178,7 @@ elif st.session_state.page == "dashboard":
                         st.rerun()
                 st.divider()
 
-    # 送出區（核心：點擊後自動存入桌面 raw data 資料夾）
+    # 送出區（核心：點擊後自動存入桌面 raw data 資料夾，並在畫面上印出完整路徑）
     if completed_count > 0:
         if st.button(
             "🚀 確認送出並自動存入桌面 [raw data] 資料夾",
@@ -228,9 +228,9 @@ elif st.session_state.page == "dashboard":
 
             df_res.to_csv(file_path, index=False, encoding="utf-8-sig")
 
-            st.success(
-                f"🎉 【{target_date_str} - {meta['session_time']}】資料已成功送出，並自動存入桌面 [raw data]！"
-            )
+            # 💡 把完整路徑暫存到 session 裡面，讓下一頁也能清楚看到
+            st.session_state.last_saved_path = file_path
+
             st.session_state.page = "export"
             st.rerun()
 
@@ -307,7 +307,13 @@ elif st.session_state.page == "detail":
 # --- 4. 數據匯出與完成頁面 ---
 elif st.session_state.page == "export":
     st.title("📊 Raw Data 檢驗資料庫")
-    st.success("資料已成功自動存入桌面 [raw data] 資料夾！")
+
+    # 放大顯示剛剛自動存檔的絕對路徑，讓您一眼看出檔案在哪
+    saved_path = st.session_state.get(
+        "last_saved_path", "（尚未記錄路徑）"
+    )
+    st.success("🎉 資料已成功送出並自動存入電腦！")
+    st.info(f"📂 **檔案自動儲存的完整絕對路徑：**\n\n`{saved_path}`")
 
     df_res = pd.DataFrame(list(st.session_state.submitted_records.values()))
     st.dataframe(df_res, use_container_width=True)
