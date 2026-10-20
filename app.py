@@ -15,7 +15,7 @@ if "inspection_data" not in st.session_state:
 if "meta" not in st.session_state:
     st.session_state.meta = {}
 if "submitted_records" not in st.session_state:
-    st.session_state.submitted_records = []
+    st.session_state.submitted_records = {}
 if "daily_history" not in st.session_state:
     # 紀錄格式: { (date_str, session_time, item_no): data }
     st.session_state.daily_history = {}
@@ -26,7 +26,7 @@ if st.session_state.page == "login":
     st.markdown("### 請設定本次巡檢基本資訊與時段")
 
     with st.form("login_form"):
-        inspector = st.text_input("檢驗人員", value="")
+        inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
         session_time = st.selectbox(
             "巡檢時段", ["上午場 (First Half)", "下午場 (Second Half)"]
@@ -85,9 +85,13 @@ elif st.session_state.page == "dashboard":
     meta = st.session_state.meta
     st.title(f"📋 {meta['line']}產線 - {meta['model']} 巡檢選單")
 
-    current_date_val = datetime.datetime.strptime(
-        meta["inspection_date"], "%Y-%m-%d"
-    ).date()
+    # 防呆處理：確保 inspection_date 無論是字串或 date 物件都能正確解析
+    raw_date = meta.get("inspection_date", datetime.date.today())
+    if isinstance(raw_date, str):
+        current_date_val = datetime.datetime.strptime(raw_date, "%Y-%m-%d").date()
+    else:
+        current_date_val = raw_date
+
     selected_date = st.date_input(
         "📅 當前檢驗/補登日期",
         value=current_date_val,
@@ -95,7 +99,7 @@ elif st.session_state.page == "dashboard":
     )
     selected_date_str = str(selected_date)
 
-    if selected_date_str != meta["inspection_date"]:
+    if selected_date_str != str(meta["inspection_date"]):
         meta["inspection_date"] = selected_date_str
         st.session_state.inspection_data = {}
 
@@ -223,7 +227,7 @@ elif st.session_state.page == "dashboard":
             use_container_width=True,
         ):
             current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            target_date_str = meta["inspection_date"]
+            target_date_str = str(meta["inspection_date"])
 
             for item_no, data in st.session_state.inspection_data.items():
                 if data["status"] in ["OK", "NG"]:
@@ -234,35 +238,29 @@ elif st.session_state.page == "dashboard":
                     )
                     st.session_state.daily_history[history_key] = data
 
-                    st.session_state.submitted_records = [
-                        r
-                        for r in st.session_state.submitted_records
-                        if not (
-                            str(r.get("指定檢驗日期")) == target_date_str
-                            and r.get("項次") == item_no
-                            and str(r.get("時段")) == meta["session_time"]
-                        )
-                    ]
-
                     for idx, val in enumerate(data["values"]):
-                        st.session_state.submitted_records.append(
-                            {
-                                "更新時間": current_time,
-                                "指定檢驗日期": target_date_str,
-                                "檢驗人員": meta["inspector"],
-                                "班別": meta["shift"],
-                                "時段": meta["session_time"],
-                                "產線": meta["line"],
-                                "機種": meta["model"],
-                                "項次": item_no,
-                                "量測點/型態": f"點 {idx+1}"
-                                if isinstance(val, (int, float))
-                                else "目視檢查",
-                                "實測值/結果": val,
-                                "判定結果": data["status"],
-                                "異常備註": data["remark"],
-                            }
+                        record_key = (
+                            target_date_str,
+                            meta["session_time"],
+                            item_no,
+                            idx,
                         )
+                        st.session_state.submitted_records[record_key] = {
+                            "更新時間": current_time,
+                            "指定檢驗日期": target_date_str,
+                            "檢驗人員": meta["inspector"],
+                            "班別": meta["shift"],
+                            "時段": meta["session_time"],
+                            "產線": meta["line"],
+                            "機種": meta["model"],
+                            "項次": item_no,
+                            "量測點/型態": f"點 {idx+1}"
+                            if isinstance(val, (int, float))
+                            else "目視檢查",
+                            "實測值/結果": val,
+                            "判定結果": data["status"],
+                            "異常備註": data["remark"],
+                        }
 
             st.success(
                 f"🎉 【{target_date_str} - {meta['session_time']}】的巡檢資料已成功更新並歸檔！"
@@ -336,7 +334,7 @@ elif st.session_state.page == "detail":
             }
             st.session_state.inspection_data[cur["no"]] = item_data
 
-            target_date_str = meta["inspection_date"]
+            target_date_str = str(meta["inspection_date"])
             history_key = (
                 target_date_str,
                 meta["session_time"],
@@ -353,25 +351,6 @@ elif st.session_state.page == "detail":
 # --- 4. 數據匯出與完成頁面 ---
 elif st.session_state.page == "export":
     st.title("📊 Raw Data 檢驗資料庫")
-    st.success("資料已成功整理並對齊格式！")
+    st.success("資料已成功整理並對齊格式（Upsert/Overwrite 覆蓋已生效）！")
 
-    df_res = pd.DataFrame(st.session_state.submitted_records)
-    st.dataframe(df_res, use_container_width=True)
-
-    csv_data = df_res.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        label="📥 下載 Raw Data (CSV 報表)",
-        data=csv_data,
-        file_name=f"IPQC_RawData_{datetime.date.today()}.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
-
-    if st.button(
-        "🔄 開始下一筆新的巡檢任務",
-        type="primary",
-        use_container_width=True,
-    ):
-        st.session_state.inspection_data = {}
-        st.session_state.page = "login"
-        st.rerun()
+    df_res = pd.DataFrame(list(st.session_state
