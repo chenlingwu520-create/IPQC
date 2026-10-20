@@ -17,7 +17,7 @@ if "meta" not in st.session_state:
 if "submitted_records" not in st.session_state:
     st.session_state.submitted_records = []
 if "daily_history" not in st.session_state:
-    # 紀錄格式: { "LOT_日期_時段_項次": data }
+    # 紀錄格式: { (date_str, session_time, item_no): data }
     st.session_state.daily_history = {}
 
 # --- 1. 登入與巡檢基本設定頁面 ---
@@ -36,44 +36,41 @@ if st.session_state.page == "login":
         )
         line = st.selectbox("產線", ["AKC"])
         model = st.selectbox("機種", ["BLM243"])
-        lot_no = st.text_input("生產批號 / 批量", value="")
 
         submitted = st.form_submit_button("🚀 進入巡檢主選單")
         if submitted:
+            target_date_str = str(target_date)
+
             st.session_state.meta = {
                 "inspector": inspector,
                 "shift": shift,
                 "session_time": session_time,
-                "inspection_date": target_date,
+                "inspection_date": target_date_str,
                 "line": line,
                 "model": model,
-                "lot_no": lot_no,
             }
             st.session_state.inspection_data = {}
 
-            # 歷史資料載入邏輯
-            target_date_str = str(target_date)
-            exact_key_prefix = f"{lot_no}_{target_date_str}_{session_time}"
-            has_same_session_record = any(
-                k.startswith(exact_key_prefix)
+            # 1. 優先檢查：當前【同一時段】是否已有填寫過的紀錄
+            has_current_session_data = any(
+                k[0] == target_date_str and k[1] == session_time
                 for k in st.session_state.daily_history.keys()
             )
 
-            if has_same_session_record:
-                # 1. 進入同一時段：完整帶入該時段已填寫的紀錄
+            if has_current_session_data:
                 for k, v in st.session_state.daily_history.items():
-                    if k.startswith(exact_key_prefix):
-                        item_no = int(k.split("_")[-1])
+                    if k[0] == target_date_str and k[1] == session_time:
+                        item_no = k[2]
                         st.session_state.inspection_data[item_no] = {
                             **v,
                             "source": "current",
                         }
             else:
-                # 2. 進入新時段（如下午場）：搜尋當天前場次已填寫的「一天一次」或「週期性」項目並自動帶入標記
-                day_key_prefix = f"{lot_no}_{target_date_str}"
+                # 2. 若為下午場等新時段：強效抓取【當天前場次】已完成的「一天一次」或「週期性」項目
                 for k, v in st.session_state.daily_history.items():
-                    if k.startswith(day_key_prefix):
-                        item_no = int(k.split("_")[-1])
+                    if k[0] == target_date_str:
+                        item_no = k[2]
+                        # 3(定部扭力), 4(磁鐵脫拔力), 8(皮帶輪扭力), 13(位置度), 16~18(清潔度)
                         if item_no in [3, 4, 8, 13, 16, 17, 18]:
                             st.session_state.inspection_data[item_no] = {
                                 **v,
@@ -88,34 +85,37 @@ elif st.session_state.page == "dashboard":
     meta = st.session_state.meta
     st.title(f"📋 {meta['line']}產線 - {meta['model']} 巡檢選單")
 
+    current_date_val = datetime.datetime.strptime(
+        meta["inspection_date"], "%Y-%m-%d"
+    ).date()
     selected_date = st.date_input(
         "📅 當前檢驗/補登日期",
-        value=meta.get("inspection_date", datetime.date.today()),
+        value=current_date_val,
         key="dashboard_date_picker",
     )
-    if selected_date != meta.get("inspection_date"):
-        meta["inspection_date"] = selected_date
+    selected_date_str = str(selected_date)
+
+    if selected_date_str != meta["inspection_date"]:
+        meta["inspection_date"] = selected_date_str
         st.session_state.inspection_data = {}
-        target_date_str = str(selected_date)
-        exact_key_prefix = f"{meta['lot_no']}_{target_date_str}_{meta['session_time']}"
-        has_same_session_record = any(
-            k.startswith(exact_key_prefix)
+
+        has_current_session_data = any(
+            k[0] == selected_date_str and k[1] == meta["session_time"]
             for k in st.session_state.daily_history.keys()
         )
 
-        if has_same_session_record:
+        if has_current_session_data:
             for k, v in st.session_state.daily_history.items():
-                if k.startswith(exact_key_prefix):
-                    item_no = int(k.split("_")[-1])
+                if k[0] == selected_date_str and k[1] == meta["session_time"]:
+                    item_no = k[2]
                     st.session_state.inspection_data[item_no] = {
                         **v,
                         "source": "current",
                     }
         else:
-            day_key_prefix = f"{meta['lot_no']}_{target_date_str}"
             for k, v in st.session_state.daily_history.items():
-                if k.startswith(day_key_prefix):
-                    item_no = int(k.split("_")[-1])
+                if k[0] == selected_date_str:
+                    item_no = k[2]
                     if item_no in [3, 4, 8, 13, 16, 17, 18]:
                         st.session_state.inspection_data[item_no] = {
                             **v,
@@ -124,12 +124,12 @@ elif st.session_state.page == "dashboard":
         st.rerun()
 
     st.caption(
-        f"人員：{meta['inspector']} | 班別：{meta['shift']} ({meta['session_time']}) | 批號：{meta['lot_no']}"
+        f"人員：{meta['inspector']} | 班別：{meta['shift']} ({meta['session_time']})"
     )
 
     items_def = [
         (1, "厚度", "高度規", "6x 2.18~2.58mm", "numeric", 6, 2.18, 2.58, "every_session"),
-        (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "once_day"),
+        (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "every_session"),
         (3, "定部扭轉脫拔力", "扭力板手", "20 Nm Min", "numeric", 1, 20.0, 999.0, "once_day"),
         (4, "磁鐵脫拔力", "萬材機", "5 Kgf Min", "numeric", 1, 5.0, 999.0, "once_day"),
         (5, "軸與轉子堆疊角度(第一層)", "投影機", "0°±0.25°", "numeric", 1, -0.25, 0.25, "every_session"),
@@ -168,7 +168,9 @@ elif st.session_state.page == "dashboard":
         completed_count / total_items,
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
-  
+    st.info(
+        "💡 提示：『🔵 OK(前場帶入)』代表當天早上場已填過；『🟢 OK』代表本場次填寫完成。"
+    )
 
     for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
         item_info = st.session_state.inspection_data[no]
@@ -221,23 +223,22 @@ elif st.session_state.page == "dashboard":
             use_container_width=True,
         ):
             current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            target_date_str = str(meta["inspection_date"])
-            exact_key_prefix = (
-                f"{meta['lot_no']}_{target_date_str}_{meta['session_time']}"
-            )
+            target_date_str = meta["inspection_date"]
 
             for item_no, data in st.session_state.inspection_data.items():
                 if data["status"] in ["OK", "NG"]:
-                    st.session_state.daily_history[
-                        f"{exact_key_prefix}_{item_no}"
-                    ] = data
+                    history_key = (
+                        target_date_str,
+                        meta["session_time"],
+                        item_no,
+                    )
+                    st.session_state.daily_history[history_key] = data
 
                     st.session_state.submitted_records = [
                         r
                         for r in st.session_state.submitted_records
                         if not (
                             str(r.get("指定檢驗日期")) == target_date_str
-                            and str(r.get("批號")) == meta["lot_no"]
                             and r.get("項次") == item_no
                             and str(r.get("時段")) == meta["session_time"]
                         )
@@ -253,7 +254,6 @@ elif st.session_state.page == "dashboard":
                                 "時段": meta["session_time"],
                                 "產線": meta["line"],
                                 "機種": meta["model"],
-                                "批號": meta["lot_no"],
                                 "項次": item_no,
                                 "量測點/型態": f"點 {idx+1}"
                                 if isinstance(val, (int, float))
@@ -334,17 +334,15 @@ elif st.session_state.page == "detail":
                 "remark": remark,
                 "source": "current",
             }
-            # 1. 寫入當前 session
             st.session_state.inspection_data[cur["no"]] = item_data
 
-            # 2. 即時同步寫入歷史資料庫（不用等最後大按鈕，確保切換時段 100% 抓得到！）
-            target_date_str = str(meta["inspection_date"])
-            exact_key_prefix = (
-                f"{meta['lot_no']}_{target_date_str}_{meta['session_time']}"
+            target_date_str = meta["inspection_date"]
+            history_key = (
+                target_date_str,
+                meta["session_time"],
+                cur["no"],
             )
-            st.session_state.daily_history[f"{exact_key_prefix}_{cur['no']}"] = (
-                item_data
-            )
+            st.session_state.daily_history[history_key] = item_data
 
             st.session_state.page = "dashboard"
             st.rerun()
