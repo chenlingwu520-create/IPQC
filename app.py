@@ -26,7 +26,7 @@ if st.session_state.page == "login":
     st.markdown("### 請設定本次巡檢基本資訊與時段")
 
     with st.form("login_form"):
-        inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
+        inspector = st.text_input("檢驗人員", value="")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
         session_time = st.selectbox(
             "巡檢時段", ["上午場 (First Half)", "下午場 (Second Half)"]
@@ -36,7 +36,7 @@ if st.session_state.page == "login":
         )
         line = st.selectbox("產線", ["AKC"])
         model = st.selectbox("機種", ["BLM243"])
-        lot_no = st.text_input("生產批號 / 批量", value="LOT-20261016-01")
+        lot_no = st.text_input("生產批號 / 批量", value="")
 
         submitted = st.form_submit_button("🚀 進入巡檢主選單")
         if submitted:
@@ -168,9 +168,7 @@ elif st.session_state.page == "dashboard":
         completed_count / total_items,
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
-    st.info(
-        "💡 提示：『🔵 OK(前場帶入)』代表當天早上場已填過；『🟢 OK』代表本場次填寫完成。"
-    )
+  
 
     for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
         item_info = st.session_state.inspection_data[no]
