@@ -16,6 +16,8 @@ if "meta" not in st.session_state:
     st.session_state.meta = {}
 if "submitted_records" not in st.session_state:
     st.session_state.submitted_records = {}
+if "focus_item" not in st.session_state:
+    st.session_state.focus_item = None  # 用來記錄上次填寫的項次，以便返回時自動對焦
 
 # --- 1. 登入與巡檢基本設定頁面 ---
 if st.session_state.page == "login":
@@ -47,6 +49,7 @@ if st.session_state.page == "login":
                 "model": model,
             }
             st.session_state.inspection_data = {}
+            st.session_state.focus_item = None
             st.session_state.page = "dashboard"
             st.rerun()
 
@@ -71,6 +74,7 @@ elif st.session_state.page == "dashboard":
     if selected_date_str != str(meta["inspection_date"]):
         meta["inspection_date"] = selected_date_str
         st.session_state.inspection_data = {}
+        st.session_state.focus_item = None
         st.rerun()
 
     st.caption(
@@ -135,6 +139,9 @@ elif st.session_state.page == "dashboard":
             "periodic": "🔬 週期補登",
         }.get(freq, "")
 
+        # 建立 HTML 錨點，讓返回時能自動定位到該項次
+        st.markdown(f'<div id="item_{no}"></div>', unsafe_allow_html=True)
+
         c1, c2, c3 = st.columns([3, 1.8, 1.2])
         with c1:
             st.markdown(f"**{no}. {name}**")
@@ -153,9 +160,22 @@ elif st.session_state.page == "dashboard":
                     "max": max_v,
                     "freq": freq,
                 }
+                st.session_state.focus_item = no  # 記住目前點擊的項次
                 st.session_state.page = "detail"
                 st.rerun()
         st.divider()
+
+    # 如果有剛才填寫完返回的焦點項次，利用 st.fragment 或自動捲動標籤將畫面帶回該處
+    if st.session_state.focus_item:
+        f_no = st.session_state.focus_item
+        st.markdown(
+            f"""
+            <script>
+                window.location.hash = "#item_{f_no}";
+            </script>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # 送出區
     if completed_count > 0:
@@ -292,5 +312,6 @@ elif st.session_state.page == "export":
         use_container_width=True,
     ):
         st.session_state.inspection_data = {}
+        st.session_state.focus_item = None
         st.session_state.page = "login"
         st.rerun()
