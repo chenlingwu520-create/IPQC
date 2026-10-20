@@ -26,7 +26,7 @@ if st.session_state.page == "login":
     st.markdown("### 請設定本次巡檢基本資訊與時段")
 
     with st.form("login_form"):
-        inspector = st.text_input("檢驗人員", value="")
+        inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
         session_time = st.selectbox(
             "巡檢時段", ["上午場 (First Half)", "下午場 (Second Half)"]
@@ -36,7 +36,7 @@ if st.session_state.page == "login":
         )
         line = st.selectbox("產線", ["AKC"])
         model = st.selectbox("機種", ["BLM243"])
-        lot_no = st.text_input("生產批號 / 批量", value="")
+        lot_no = st.text_input("生產批號 / 批量", value="LOT-20261016-01")
 
         submitted = st.form_submit_button("🚀 進入巡檢主選單")
         if submitted:
@@ -51,27 +51,34 @@ if st.session_state.page == "login":
             }
             st.session_state.inspection_data = {}
 
-            # 精準歷史載入邏輯：
-            # 1. 先嘗試找「同批號 + 同日期 + 同時段」的完整紀錄 (同一時段再進來，資料全保留)
-            exact_key_prefix = f"{lot_no}_{target_date}_{session_time}"
+            # 歷史資料載入邏輯
+            target_date_str = str(target_date)
+            exact_key_prefix = f"{lot_no}_{target_date_str}_{session_time}"
             has_same_session_record = any(
                 k.startswith(exact_key_prefix)
                 for k in st.session_state.daily_history.keys()
             )
 
             if has_same_session_record:
+                # 1. 進入同一時段：完整帶入該時段已填寫的紀錄
                 for k, v in st.session_state.daily_history.items():
                     if k.startswith(exact_key_prefix):
                         item_no = int(k.split("_")[-1])
-                        st.session_state.inspection_data[item_no] = v
+                        st.session_state.inspection_data[item_no] = {
+                            **v,
+                            "source": "current",
+                        }
             else:
-                # 2. 如果是新時段，載入當天已有紀錄中的「一天一次/週期性」項目；「每場必驗」保持空白
-                day_key_prefix = f"{lot_no}_{target_date}"
+                # 2. 進入新時段（如下午場）：搜尋當天前場次已填寫的「一天一次」或「週期性」項目並自動帶入標記
+                day_key_prefix = f"{lot_no}_{target_date_str}"
                 for k, v in st.session_state.daily_history.items():
                     if k.startswith(day_key_prefix):
                         item_no = int(k.split("_")[-1])
                         if item_no in [3, 4, 8, 13, 16, 17, 18]:
-                            st.session_state.inspection_data[item_no] = v
+                            st.session_state.inspection_data[item_no] = {
+                                **v,
+                                "source": "inherited",
+                            }
 
             st.session_state.page = "dashboard"
             st.rerun()
@@ -89,9 +96,8 @@ elif st.session_state.page == "dashboard":
     if selected_date != meta.get("inspection_date"):
         meta["inspection_date"] = selected_date
         st.session_state.inspection_data = {}
-        exact_key_prefix = (
-            f"{meta['lot_no']}_{selected_date}_{meta['session_time']}"
-        )
+        target_date_str = str(selected_date)
+        exact_key_prefix = f"{meta['lot_no']}_{target_date_str}_{meta['session_time']}"
         has_same_session_record = any(
             k.startswith(exact_key_prefix)
             for k in st.session_state.daily_history.keys()
@@ -101,14 +107,20 @@ elif st.session_state.page == "dashboard":
             for k, v in st.session_state.daily_history.items():
                 if k.startswith(exact_key_prefix):
                     item_no = int(k.split("_")[-1])
-                    st.session_state.inspection_data[item_no] = v
+                    st.session_state.inspection_data[item_no] = {
+                        **v,
+                        "source": "current",
+                    }
         else:
-            day_key_prefix = f"{meta['lot_no']}_{selected_date}"
+            day_key_prefix = f"{meta['lot_no']}_{target_date_str}"
             for k, v in st.session_state.daily_history.items():
                 if k.startswith(day_key_prefix):
                     item_no = int(k.split("_")[-1])
                     if item_no in [3, 4, 8, 13, 16, 17, 18]:
-                        st.session_state.inspection_data[item_no] = v
+                        st.session_state.inspection_data[item_no] = {
+                            **v,
+                            "source": "inherited",
+                        }
         st.rerun()
 
     st.caption(
@@ -117,7 +129,7 @@ elif st.session_state.page == "dashboard":
 
     items_def = [
         (1, "厚度", "高度規", "6x 2.18~2.58mm", "numeric", 6, 2.18, 2.58, "every_session"),
-        (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "once_day"),
+        (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "every_session"),
         (3, "定部扭轉脫拔力", "扭力板手", "20 Nm Min", "numeric", 1, 20.0, 999.0, "once_day"),
         (4, "磁鐵脫拔力", "萬材機", "5 Kgf Min", "numeric", 1, 5.0, 999.0, "once_day"),
         (5, "軸與轉子堆疊角度(第一層)", "投影機", "0°±0.25°", "numeric", 1, -0.25, 0.25, "every_session"),
@@ -144,6 +156,7 @@ elif st.session_state.page == "dashboard":
                 "status": "未填寫",
                 "values": [],
                 "remark": "",
+                "source": "none",
             }
 
     completed_count = sum(
@@ -155,12 +168,20 @@ elif st.session_state.page == "dashboard":
         completed_count / total_items,
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
-    
+    st.info(
+        "💡 提示：『🔵 OK(前場帶入)』代表當天早上場已填過；『🟢 OK』代表本場次填寫完成。"
+    )
 
     for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
-        status = st.session_state.inspection_data[no]["status"]
+        item_info = st.session_state.inspection_data[no]
+        status = item_info["status"]
+        source = item_info.get("source", "current")
+
         if status == "OK":
-            badge = "🟢 OK"
+            if source == "inherited":
+                badge = "🔵 OK(前場帶入)"
+            else:
+                badge = "🟢 OK"
         elif status == "NG":
             badge = "🔴 NG"
         else:
@@ -172,7 +193,7 @@ elif st.session_state.page == "dashboard":
             "periodic": "🔬 週期補登",
         }.get(freq, "")
 
-        c1, c2, c3 = st.columns([3, 1.5, 1.5])
+        c1, c2, c3 = st.columns([3, 1.8, 1.2])
         with c1:
             st.markdown(f"**{no}. {name}**")
             st.caption(f"{method} | {spec} | [{freq_label}]")
@@ -194,7 +215,7 @@ elif st.session_state.page == "dashboard":
                 st.rerun()
         st.divider()
 
-    # 送出區（精準時段覆蓋邏輯）
+    # 送出區
     if completed_count > 0:
         if st.button(
             "🚀 確認送出並更新 Raw Data (覆蓋舊檔)",
@@ -209,12 +230,10 @@ elif st.session_state.page == "dashboard":
 
             for item_no, data in st.session_state.inspection_data.items():
                 if data["status"] in ["OK", "NG"]:
-                    # 包含時段在內的歷史紀錄儲存
                     st.session_state.daily_history[
                         f"{exact_key_prefix}_{item_no}"
                     ] = data
 
-                    # 移除同日、同批、同項次且「同時段」的舊紀錄，確保覆蓋正確
                     st.session_state.submitted_records = [
                         r
                         for r in st.session_state.submitted_records
@@ -260,6 +279,7 @@ elif st.session_state.page == "dashboard":
 # --- 3. 單一項目填寫頁面 ---
 elif st.session_state.page == "detail":
     cur = st.session_state.current_item
+    meta = st.session_state.meta
     st.subheader(f"📝 填寫：項次 {cur['no']} - {cur['name']}")
     st.markdown(f"**規範要求：** `{cur['spec']}`")
     st.divider()
@@ -310,11 +330,24 @@ elif st.session_state.page == "detail":
             )
 
         if save_ok:
-            st.session_state.inspection_data[cur["no"]] = {
+            item_data = {
                 "status": "NG" if is_ng else "OK",
                 "values": entered_vals,
                 "remark": remark,
+                "source": "current",
             }
+            # 1. 寫入當前 session
+            st.session_state.inspection_data[cur["no"]] = item_data
+
+            # 2. 即時同步寫入歷史資料庫（不用等最後大按鈕，確保切換時段 100% 抓得到！）
+            target_date_str = str(meta["inspection_date"])
+            exact_key_prefix = (
+                f"{meta['lot_no']}_{target_date_str}_{meta['session_time']}"
+            )
+            st.session_state.daily_history[f"{exact_key_prefix}_{cur['no']}"] = (
+                item_data
+            )
+
             st.session_state.page = "dashboard"
             st.rerun()
         if back_ok:
