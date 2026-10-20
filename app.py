@@ -7,7 +7,7 @@ st.set_page_config(
     page_title="IPQC 智慧巡檢手機 App", page_icon="📱", layout="centered"
 )
 
-# 初始化 Session State (確保歷史資料庫永不遺失)
+# 初始化 Session State
 if "page" not in st.session_state:
     st.session_state.page = "login"
 if "inspection_data" not in st.session_state:
@@ -16,25 +16,11 @@ if "meta" not in st.session_state:
     st.session_state.meta = {}
 if "submitted_records" not in st.session_state:
     st.session_state.submitted_records = {}
-if "daily_history" not in st.session_state:
-    # 紀錄格式: { (date_str, session_time, item_no): data }
-    st.session_state.daily_history = {}
 
 # --- 1. 登入與巡檢基本設定頁面 ---
 if st.session_state.page == "login":
     st.title("🏭 IPQC 行動巡檢系統")
     st.markdown("### 請設定本次巡檢基本資訊與時段")
-
-    # 顯示目前記憶庫狀態（除錯小幫手）
-    history_count = len(st.session_state.daily_history)
-    if history_count > 0:
-        st.success(
-            f"🧠 系統記憶庫中已有 {history_count} 筆歷史紀錄，跨時段自動帶入功能正常運作中！"
-        )
-    else:
-        st.info(
-            "💡 提示：目前歷史記憶庫尚無資料，請先完成上午場項目並儲存。"
-        )
 
     with st.form("login_form"):
         inspector = st.text_input("檢驗人員", value="")
@@ -61,33 +47,6 @@ if st.session_state.page == "login":
                 "model": model,
             }
             st.session_state.inspection_data = {}
-
-            # 1. 優先檢查：當前【同一時段】是否已有填寫過的紀錄
-            has_current_session_data = any(
-                k[0] == target_date_str and k[1] == session_time
-                for k in st.session_state.daily_history.keys()
-            )
-
-            if has_current_session_data:
-                for k, v in st.session_state.daily_history.items():
-                    if k[0] == target_date_str and k[1] == session_time:
-                        item_no = k[2]
-                        st.session_state.inspection_data[item_no] = {
-                            **v,
-                            "source": "current",
-                        }
-            else:
-                # 2. 若為下午場等新時段：強效抓取【當天前場次】已完成的「一天一次」或「週期性」項目
-                for k, v in st.session_state.daily_history.items():
-                    if k[0] == target_date_str:
-                        item_no = k[2]
-                        # 3(定部扭力), 4(磁鐵脫拔力), 8(皮帶輪扭力), 13(位置度), 16~18(清潔度)
-                        if item_no in [3, 4, 8, 13, 16, 17, 18]:
-                            st.session_state.inspection_data[item_no] = {
-                                **v,
-                                "source": "inherited",
-                            }
-
             st.session_state.page = "dashboard"
             st.rerun()
 
@@ -112,29 +71,6 @@ elif st.session_state.page == "dashboard":
     if selected_date_str != str(meta["inspection_date"]):
         meta["inspection_date"] = selected_date_str
         st.session_state.inspection_data = {}
-
-        has_current_session_data = any(
-            k[0] == selected_date_str and k[1] == meta["session_time"]
-            for k in st.session_state.daily_history.keys()
-        )
-
-        if has_current_session_data:
-            for k, v in st.session_state.daily_history.items():
-                if k[0] == selected_date_str and k[1] == meta["session_time"]:
-                    item_no = k[2]
-                    st.session_state.inspection_data[item_no] = {
-                        **v,
-                        "source": "current",
-                    }
-        else:
-            for k, v in st.session_state.daily_history.items():
-                if k[0] == selected_date_str:
-                    item_no = k[2]
-                    if item_no in [3, 4, 8, 13, 16, 17, 18]:
-                        st.session_state.inspection_data[item_no] = {
-                            **v,
-                            "source": "inherited",
-                        }
         st.rerun()
 
     st.caption(
@@ -170,7 +106,6 @@ elif st.session_state.page == "dashboard":
                 "status": "未填寫",
                 "values": [],
                 "remark": "",
-                "source": "none",
             }
 
     completed_count = sum(
@@ -182,20 +117,13 @@ elif st.session_state.page == "dashboard":
         completed_count / total_items,
         text=f"總進度：已完成 {completed_count} / {total_items} 項",
     )
-    st.info(
-        "💡 提示：『🔵 OK(前場帶入)』代表當天早上場已填過；『🟢 OK』代表本場次填寫完成。"
-    )
 
     for no, name, method, spec, itype, pts, min_v, max_v, freq in items_def:
         item_info = st.session_state.inspection_data[no]
         status = item_info["status"]
-        source = item_info.get("source", "current")
 
         if status == "OK":
-            if source == "inherited":
-                badge = "🔵 OK(前場帶入)"
-            else:
-                badge = "🟢 OK"
+            badge = "🟢 OK"
         elif status == "NG":
             badge = "🔴 NG"
         else:
@@ -241,13 +169,6 @@ elif st.session_state.page == "dashboard":
 
             for item_no, data in st.session_state.inspection_data.items():
                 if data["status"] in ["OK", "NG"]:
-                    history_key = (
-                        target_date_str,
-                        meta["session_time"],
-                        item_no,
-                    )
-                    st.session_state.daily_history[history_key] = data
-
                     for idx, val in enumerate(data["values"]):
                         record_key = (
                             target_date_str,
@@ -340,18 +261,8 @@ elif st.session_state.page == "detail":
                 "status": "NG" if is_ng else "OK",
                 "values": entered_vals,
                 "remark": remark,
-                "source": "current",
             }
             st.session_state.inspection_data[cur["no"]] = item_data
-
-            target_date_str = str(meta["inspection_date"])
-            history_key = (
-                target_date_str,
-                meta["session_time"],
-                cur["no"],
-            )
-            st.session_state.daily_history[history_key] = item_data
-
             st.session_state.page = "dashboard"
             st.rerun()
         if back_ok:
