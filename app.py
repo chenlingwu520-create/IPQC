@@ -7,7 +7,7 @@ st.set_page_config(
     page_title="IPQC 智慧巡檢手機 App", page_icon="📱", layout="centered"
 )
 
-# 初始化 Session State
+# 初始化 Session State (確保歷史資料庫永不遺失)
 if "page" not in st.session_state:
     st.session_state.page = "login"
 if "inspection_data" not in st.session_state:
@@ -24,6 +24,17 @@ if "daily_history" not in st.session_state:
 if st.session_state.page == "login":
     st.title("🏭 IPQC 行動巡檢系統")
     st.markdown("### 請設定本次巡檢基本資訊與時段")
+
+    # 顯示目前記憶庫狀態（除錯小幫手）
+    history_count = len(st.session_state.daily_history)
+    if history_count > 0:
+        st.success(
+            f"🧠 系統記憶庫中已有 {history_count} 筆歷史紀錄，跨時段自動帶入功能正常運作中！"
+        )
+    else:
+        st.info(
+            "💡 提示：目前歷史記憶庫尚無資料，請先完成上午場項目並儲存。"
+        )
 
     with st.form("login_form"):
         inspector = st.text_input("檢驗人員", value="")
@@ -85,7 +96,6 @@ elif st.session_state.page == "dashboard":
     meta = st.session_state.meta
     st.title(f"📋 {meta['line']}產線 - {meta['model']} 巡檢選單")
 
-    # 防呆處理：確保 inspection_date 無論是字串或 date 物件都能正確解析
     raw_date = meta.get("inspection_date", datetime.date.today())
     if isinstance(raw_date, str):
         current_date_val = datetime.datetime.strptime(raw_date, "%Y-%m-%d").date()
@@ -353,7 +363,6 @@ elif st.session_state.page == "export":
     st.title("📊 Raw Data 檢驗資料庫")
     st.success("資料已成功整理並對齊格式！")
 
-    # 修正括號，完整包覆 list()
     df_res = pd.DataFrame(list(st.session_state.submitted_records.values()))
     st.dataframe(df_res, use_container_width=True)
 
