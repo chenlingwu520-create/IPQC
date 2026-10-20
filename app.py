@@ -326,4 +326,51 @@ elif st.session_state.page == "detail":
             )
 
         if save_ok:
-            item_data =
+            item_data = {
+                "status": "NG" if is_ng else "OK",
+                "values": entered_vals,
+                "remark": remark,
+                "source": "current",
+            }
+            st.session_state.inspection_data[cur["no"]] = item_data
+
+            target_date_str = str(meta["inspection_date"])
+            history_key = (
+                target_date_str,
+                meta["session_time"],
+                cur["no"],
+            )
+            st.session_state.daily_history[history_key] = item_data
+
+            st.session_state.page = "dashboard"
+            st.rerun()
+        if back_ok:
+            st.session_state.page = "dashboard"
+            st.rerun()
+
+# --- 4. 數據匯出與完成頁面 ---
+elif st.session_state.page == "export":
+    st.title("📊 Raw Data 檢驗資料庫")
+    st.success("資料已成功整理並對齊格式！")
+
+    # 修正括號，完整包覆 list()
+    df_res = pd.DataFrame(list(st.session_state.submitted_records.values()))
+    st.dataframe(df_res, use_container_width=True)
+
+    csv_data = df_res.to_csv(index=False).encode("utf-8-sig")
+    st.download_button(
+        label="📥 下載 Raw Data (CSV 報表)",
+        data=csv_data,
+        file_name=f"IPQC_RawData_{datetime.date.today()}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+    if st.button(
+        "🔄 開始下一筆新的巡檢任務",
+        type="primary",
+        use_container_width=True,
+    ):
+        st.session_state.inspection_data = {}
+        st.session_state.page = "login"
+        st.rerun()
