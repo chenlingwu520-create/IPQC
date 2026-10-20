@@ -26,7 +26,7 @@ if st.session_state.page == "login":
     st.markdown("### 請設定本次巡檢基本資訊與時段")
 
     with st.form("login_form"):
-        inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
+        inspector = st.text_input("檢驗人員", value="")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
         session_time = st.selectbox(
             "巡檢時段", ["上午場 (First Half)", "下午場 (Second Half)"]
