@@ -130,6 +130,7 @@ elif st.session_state.page == "dashboard":
                 "status": "未填寫",
                 "values": [],
                 "remark": "",
+                "filled_time": "",
             }
 
     completed_count = sum(
@@ -205,16 +206,19 @@ elif st.session_state.page == "dashboard":
         type="primary",
         use_container_width=True,
     ):
-        # 取得當下系統時間（即當地中原標準時間 / 台灣時間）
-        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        tw_timezone = datetime.timezone(datetime.timedelta(hours=8))
+        fallback_time = datetime.datetime.now(tw_timezone).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
         target_date_str = str(meta["inspection_date"])
 
         for item_no, data in st.session_state.inspection_data.items():
             if data["status"] in ["OK", "NG"]:
-                # 從定義中取得對應的項目名稱
                 item_name = (
                     items_dict[item_no][1] if item_no in items_dict else ""
                 )
+                # 抓取該項目個別填寫的時間，若無則用當下時間補底
+                item_time = data.get("filled_time", fallback_time)
 
                 for idx, val in enumerate(data["values"]):
                     record_key = (
@@ -224,7 +228,7 @@ elif st.session_state.page == "dashboard":
                         idx,
                     )
                     st.session_state.submitted_records[record_key] = {
-                        "更新時間": current_time,
+                        "檢驗時間": item_time,  # 👈 每個項目專屬的填寫完成時間
                         "指定檢驗日期": target_date_str,
                         "檢驗人員": meta["inspector"],
                         "班別": meta["shift"],
@@ -232,7 +236,7 @@ elif st.session_state.page == "dashboard":
                         "產線": meta["line"],
                         "機種": meta["model"],
                         "項次": item_no,
-                        "項次名稱": item_name,  # 👈 新增：項次名稱欄位
+                        "項次名稱": item_name,
                         "量測點/型態": f"點 {idx+1}"
                         if isinstance(val, (int, float))
                         else "目視檢查",
@@ -249,7 +253,7 @@ elif st.session_state.page == "dashboard":
         else:
             df_res = pd.DataFrame(
                 columns=[
-                    "更新時間",
+                    "檢驗時間",
                     "指定檢驗日期",
                     "檢驗人員",
                     "班別",
@@ -257,7 +261,7 @@ elif st.session_state.page == "dashboard":
                     "產線",
                     "機種",
                     "項次",
-                    "項次名稱",  # 👈 表頭同步更新
+                    "項次名稱",
                     "量測點/型態",
                     "實測值/結果",
                     "判定結果",
@@ -337,10 +341,17 @@ elif st.session_state.page == "detail":
             )
 
         if save_ok:
+            # 🛠️ 取得按下儲存當下的中原標準時間 (UTC+8)
+            tw_timezone = datetime.timezone(datetime.timedelta(hours=8))
+            filled_time_str = datetime.datetime.now(tw_timezone).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
             item_data = {
                 "status": "NG" if is_ng else "OK",
                 "values": entered_vals,
                 "remark": remark,
+                "filled_time": filled_time_str,  # 👈 獨立鎖定該項目的填寫時間
             }
             st.session_state.inspection_data[cur["no"]] = item_data
 
