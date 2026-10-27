@@ -22,6 +22,59 @@ if "session_cache" not in st.session_state:
 if "last_saved_path" not in st.session_state:
     st.session_state.last_saved_path = ""
 
+# 18 項完整定義
+items_def = [
+    (1, "厚度", "高度規", "6x 2.18~2.58mm", "numeric", 6, 2.18, 2.58, "every_session"),
+    (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "once_day"),
+    (3, "定部扭轉脫拔力", "扭力板手", "20 Nm Min", "numeric", 1, 20.0, 999.0, "once_day"),
+    (4, "磁鐵脫拔力", "萬材機", "5 Kgf Min", "numeric", 1, 5.0, 999.0, "once_day"),
+    (5, "軸與轉子堆疊角度(第一層)", "投影機", "0°±0.25°", "numeric", 1, -0.25, 0.25, "every_session"),
+    (6, "軸與轉子堆疊角度(第二層)", "投影機", "5.5°±0.25°", "numeric", 1, 5.25, 5.75, "every_session"),
+    (7, "軸與轉子堆疊角度(第三層)", "投影機", "11°±0.25°", "numeric", 1, 10.75, 11.25, "every_session"),
+    (8, "皮帶輪扭轉脫拔力", "扭力板手", "20Nm Min", "numeric", 1, 20.0, 999.0, "once_day"),
+    (9, "三相端子高度", "高度規", "3x 24.2~25.2mm", "numeric", 3, 24.2, 25.2, "every_session"),
+    (10, "皮帶輪壓入尺寸", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8, "every_session"),
+    (11, "皮帶輪高度", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8, "every_session"),
+    (12, "馬達高度", "高度規", "105.2 ± 0.4mm", "numeric", 1, 104.8, 105.6, "every_session"),
+    (13, "位置度", "CMM", "依圖面規範", "numeric", 1, 0.0, 999.0, "once_day"),
+    (14, "熱合後本體外徑量測", "游標尺", "63±0.3 mm", "numeric", 1, 62.7, 63.3, "every_session"),
+    (15, "標籤確認", "目視檢查", "標籤與外箱相同", "visual", 1, 0, 0, "every_session"),
+    (16, "OP5090清潔度檢查", "光學顯微鏡", "SPEC TP401300-B", "visual", 1, 0, 0, "periodic"),
+    (17, "OP7035清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0, "periodic"),
+    (18, "OP7190清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0, "periodic"),
+]
+
+items_dict = {item[0]: item for item in items_def}
+# 自動抓出所有頻率為 "once_day" (一天一次) 的項次編號
+once_day_item_nos = [item[0] for item in items_def if item[8] == "once_day"]
+
+
+# 🛠️ 智慧載入函數：處理一般項目（分時段）與一天一次項目（同天跨時段共用）
+def load_inspection_data_for_session(target_date_str, session_time):
+    data = {}
+    # 1. 載入該日期、該時段的專屬紀錄
+    for (
+        d_str,
+        s_time,
+        item_no,
+    ), cached_data in st.session_state.session_cache.items():
+        if d_str == target_date_str and s_time == session_time:
+            data[item_no] = cached_data
+
+    # 2. 針對「一天一次 (once_day)」的項目，如果在同天其他時段填過，直接自動帶入！
+    for item_no in once_day_item_nos:
+        if item_no not in data:
+            for (
+                d_str,
+                s_time,
+                cached_no,
+            ), cached_data in st.session_state.session_cache.items():
+                if d_str == target_date_str and cached_no == item_no:
+                    data[item_no] = cached_data
+                    break
+    return data
+
+
 # --- 1. 登入與巡檢基本設定頁面 ---
 if st.session_state.page == "login":
     st.title("🏭 IPQC 行動巡檢系統")
@@ -52,15 +105,12 @@ if st.session_state.page == "login":
                 "model": model,
             }
 
-            # 自動載入該日期與時段的暫存紀錄
-            st.session_state.inspection_data = {}
-            for (
-                d_str,
-                s_time,
-                item_no,
-            ), cached_data in st.session_state.session_cache.items():
-                if d_str == target_date_str and s_time == session_time:
-                    st.session_state.inspection_data[item_no] = cached_data
+            # 載入該時段與當天共用項目
+            st.session_state.inspection_data = (
+                load_inspection_data_for_session(
+                    target_date_str, session_time
+                )
+            )
 
             st.session_state.page = "dashboard"
             st.rerun()
@@ -85,43 +135,15 @@ elif st.session_state.page == "dashboard":
 
     if selected_date_str != str(meta["inspection_date"]):
         meta["inspection_date"] = selected_date_str
-        st.session_state.inspection_data = {}
-        for (
-            d_str,
-            s_time,
-            item_no,
-        ), cached_data in st.session_state.session_cache.items():
-            if d_str == selected_date_str and s_time == meta["session_time"]:
-                st.session_state.inspection_data[item_no] = cached_data
+        st.session_state.inspection_data = load_inspection_data_for_session(
+            selected_date_str, meta["session_time"]
+        )
         st.rerun()
 
     st.caption(
         f"人員：{meta['inspector']} | 班別：{meta['shift']} ({meta['session_time']})"
     )
 
-    # 18 項完整定義
-    items_def = [
-        (1, "厚度", "高度規", "6x 2.18~2.58mm", "numeric", 6, 2.18, 2.58, "every_session"),
-        (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "once_day"),
-        (3, "定部扭轉脫拔力", "扭力板手", "20 Nm Min", "numeric", 1, 20.0, 999.0, "once_day"),
-        (4, "磁鐵脫拔力", "萬材機", "5 Kgf Min", "numeric", 1, 5.0, 999.0, "once_day"),
-        (5, "軸與轉子堆疊角度(第一層)", "投影機", "0°±0.25°", "numeric", 1, -0.25, 0.25, "every_session"),
-        (6, "軸與轉子堆疊角度(第二層)", "投影機", "5.5°±0.25°", "numeric", 1, 5.25, 5.75, "every_session"),
-        (7, "軸與轉子堆疊角度(第三層)", "投影機", "11°±0.25°", "numeric", 1, 10.75, 11.25, "every_session"),
-        (8, "皮帶輪扭轉脫拔力", "扭力板手", "20Nm Min", "numeric", 1, 20.0, 999.0, "once_day"),
-        (9, "三相端子高度", "高度規", "3x 24.2~25.2mm", "numeric", 3, 24.2, 25.2, "every_session"),
-        (10, "皮帶輪壓入尺寸", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8, "every_session"),
-        (11, "皮帶輪高度", "高度規", "24.5±0.3mm", "numeric", 1, 24.2, 24.8, "every_session"),
-        (12, "馬達高度", "高度規", "105.2 ± 0.4mm", "numeric", 1, 104.8, 105.6, "every_session"),
-        (13, "位置度", "CMM", "依圖面規範", "numeric", 1, 0.0, 999.0, "once_day"),
-        (14, "熱合後本體外徑量測", "游標尺", "63±0.3 mm", "numeric", 1, 62.7, 63.3, "every_session"),
-        (15, "標籤確認", "目視檢查", "標籤與外箱相同", "visual", 1, 0, 0, "every_session"),
-        (16, "OP5090清潔度檢查", "光學顯微鏡", "SPEC TP401300-B", "visual", 1, 0, 0, "periodic"),
-        (17, "OP7035清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0, "periodic"),
-        (18, "OP7190清潔檢查", "光學顯微鏡", "SPEC TA100947", "visual", 1, 0, 0, "periodic"),
-    ]
-
-    items_dict = {item[0]: item for item in items_def}
     total_items = len(items_def)
 
     for no in items_dict.keys():
@@ -217,7 +239,6 @@ elif st.session_state.page == "dashboard":
                 item_name = (
                     items_dict[item_no][1] if item_no in items_dict else ""
                 )
-                # 抓取該項目個別填寫的時間，若無則用當下時間補底
                 item_time = data.get("filled_time", fallback_time)
 
                 for idx, val in enumerate(data["values"]):
@@ -228,7 +249,7 @@ elif st.session_state.page == "dashboard":
                         idx,
                     )
                     st.session_state.submitted_records[record_key] = {
-                        "檢驗時間": item_time,  # 👈 每個項目專屬的填寫完成時間
+                        "檢驗時間": item_time,
                         "指定檢驗日期": target_date_str,
                         "檢驗人員": meta["inspector"],
                         "班別": meta["shift"],
@@ -245,7 +266,6 @@ elif st.session_state.page == "dashboard":
                         "異常備註": data["remark"],
                     }
 
-        # 產出 DataFrame 並寫入桌面 raw data 資料夾
         if st.session_state.submitted_records:
             df_res = pd.DataFrame(
                 list(st.session_state.submitted_records.values())
@@ -341,7 +361,6 @@ elif st.session_state.page == "detail":
             )
 
         if save_ok:
-            # 🛠️ 取得按下儲存當下的中原標準時間 (UTC+8)
             tw_timezone = datetime.timezone(datetime.timedelta(hours=8))
             filled_time_str = datetime.datetime.now(tw_timezone).strftime(
                 "%Y-%m-%d %H:%M:%S"
@@ -351,7 +370,7 @@ elif st.session_state.page == "detail":
                 "status": "NG" if is_ng else "OK",
                 "values": entered_vals,
                 "remark": remark,
-                "filled_time": filled_time_str,  # 👈 獨立鎖定該項目的填寫時間
+                "filled_time": filled_time_str,
             }
             st.session_state.inspection_data[cur["no"]] = item_data
 
