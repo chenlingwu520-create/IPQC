@@ -18,8 +18,6 @@ if "meta" not in st.session_state:
 if "submitted_records" not in st.session_state:
     st.session_state.submitted_records = {}
 if "session_cache" not in st.session_state:
-    # 專門用來記憶「當天、當場次」已經填過但還沒最後送出的暫存資料庫
-    # 格式: { (date_str, session_time, item_no): data }
     st.session_state.session_cache = {}
 if "last_saved_path" not in st.session_state:
     st.session_state.last_saved_path = ""
@@ -54,7 +52,7 @@ if st.session_state.page == "login":
                 "model": model,
             }
 
-            # 🚀 自動載入：檢查該日期與時段是否有之前暫存的紀錄，若有則直接帶回
+            # 自動載入該日期與時段的暫存紀錄
             st.session_state.inspection_data = {}
             for (
                 d_str,
@@ -87,7 +85,6 @@ elif st.session_state.page == "dashboard":
 
     if selected_date_str != str(meta["inspection_date"]):
         meta["inspection_date"] = selected_date_str
-        # 切換日期時，重新載入該日期的暫存紀錄
         st.session_state.inspection_data = {}
         for (
             d_str,
@@ -208,11 +205,17 @@ elif st.session_state.page == "dashboard":
         type="primary",
         use_container_width=True,
     ):
+        # 取得當下系統時間（即當地中原標準時間 / 台灣時間）
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         target_date_str = str(meta["inspection_date"])
 
         for item_no, data in st.session_state.inspection_data.items():
             if data["status"] in ["OK", "NG"]:
+                # 從定義中取得對應的項目名稱
+                item_name = (
+                    items_dict[item_no][1] if item_no in items_dict else ""
+                )
+
                 for idx, val in enumerate(data["values"]):
                     record_key = (
                         target_date_str,
@@ -229,6 +232,7 @@ elif st.session_state.page == "dashboard":
                         "產線": meta["line"],
                         "機種": meta["model"],
                         "項次": item_no,
+                        "項次名稱": item_name,  # 👈 新增：項次名稱欄位
                         "量測點/型態": f"點 {idx+1}"
                         if isinstance(val, (int, float))
                         else "目視檢查",
@@ -253,6 +257,7 @@ elif st.session_state.page == "dashboard":
                     "產線",
                     "機種",
                     "項次",
+                    "項次名稱",  # 👈 表頭同步更新
                     "量測點/型態",
                     "實測值/結果",
                     "判定結果",
@@ -337,10 +342,8 @@ elif st.session_state.page == "detail":
                 "values": entered_vals,
                 "remark": remark,
             }
-            # 1. 寫入當前畫面資料庫
             st.session_state.inspection_data[cur["no"]] = item_data
 
-            # 2. 同步寫入「當天、當場次」的暫存記憶庫中，確保下次再登入同一天同一場次時找得回來！
             target_date_str = str(meta["inspection_date"])
             cache_key = (target_date_str, meta["session_time"], cur["no"])
             st.session_state.session_cache[cache_key] = item_data
