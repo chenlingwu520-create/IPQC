@@ -25,7 +25,7 @@ if "last_saved_path" not in st.session_state:
 # 18 項完整定義
 items_def = [
     (1, "厚度", "高度規", "6x 2.18~2.58mm", "numeric", 6, 2.18, 2.58, "every_session"),
-    (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "every_session"),
+    (2, "三相端子點焊脫拔力", "拉力計", "3x 10 Kgf Min", "numeric", 3, 10.0, 999.0, "once_day"),
     (3, "定部扭轉脫拔力", "扭力板手", "20 Nm Min", "numeric", 1, 20.0, 999.0, "once_day"),
     (4, "磁鐵脫拔力", "萬材機", "5 Kgf Min", "numeric", 1, 5.0, 999.0, "once_day"),
     (5, "軸與轉子堆疊角度(第一層)", "投影機", "0°±0.25°", "numeric", 1, -0.25, 0.25, "every_session"),
@@ -77,7 +77,7 @@ if st.session_state.page == "login":
     st.markdown("### 請設定本次巡檢基本資訊與時段")
 
     with st.form("login_form"):
-        inspector = st.text_input("檢驗人員", value="IPQC-黃紫婷")
+        inspector = st.text_input("檢驗人員", value="")
         shift = st.selectbox("班別", ["早班", "中班", "夜班"])
         session_time = st.selectbox(
             "巡檢時段", ["上午場 (First Half)", "下午場 (Second Half)"]
