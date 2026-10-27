@@ -146,7 +146,6 @@ elif st.session_state.page == "dashboard":
                 "status": "未填寫",
                 "values": [],
                 "remark": "",
-                "filled_time": "",
             }
 
     completed_count = sum(
@@ -215,14 +214,15 @@ elif st.session_state.page == "dashboard":
                         st.rerun()
                 st.divider()
 
-    # 送出按鈕
+    # 🚀 最終確認送出按鈕（此時才抓取送出當下的中原標準時間）
     if st.button(
         "🚀 確認送出並自動存入桌面 [raw data] 資料夾",
         type="primary",
         use_container_width=True,
     ):
         tw_timezone = datetime.timezone(datetime.timedelta(hours=8))
-        fallback_time = datetime.datetime.now(tw_timezone).strftime(
+        # 抓取按下送出當下的中原標準時間 (UTC+8)
+        submission_time = datetime.datetime.now(tw_timezone).strftime(
             "%Y-%m-%d %H:%M:%S"
         )
         target_date_str = str(meta["inspection_date"])
@@ -232,7 +232,6 @@ elif st.session_state.page == "dashboard":
                 item_name = (
                     items_dict[item_no][1] if item_no in items_dict else ""
                 )
-                item_time = data.get("filled_time", fallback_time)
 
                 for idx, val in enumerate(data["values"]):
                     record_key = (
@@ -242,7 +241,7 @@ elif st.session_state.page == "dashboard":
                         idx,
                     )
                     st.session_state.submitted_records[record_key] = {
-                        "檢驗時間": item_time,
+                        "檢驗時間": submission_time,  # 👈 統一為送出時的時間
                         "指定檢驗日期": target_date_str,
                         "檢驗人員": meta["inspector"],
                         "班別": meta["shift"],
@@ -354,37 +353,11 @@ elif st.session_state.page == "detail":
             )
 
         if save_ok:
-            tw_timezone = datetime.timezone(datetime.timedelta(hours=8))
-            now_str = datetime.datetime.now(tw_timezone).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-
-            new_status = "NG" if is_ng else "OK"
-            old_status = saved.get("status", "未填寫")
-            old_values = saved.get("values", [])
-            old_remark = saved.get("remark", "")
-            old_time = saved.get("filled_time", "")
-
-            # 🛠️ 智慧比對：檢查數據、判定結果或備註是否有被修改
-            data_changed = (
-                (old_status != new_status)
-                or (old_values != entered_vals)
-                or (old_remark != remark)
-                or (not old_time)
-            )
-
-            if data_changed:
-                # 有修改，或第一次填寫 -> 更新為當下送出時間
-                final_time = now_str
-            else:
-                # 沒修改 -> 維持原本的時間，絕對不更新！
-                final_time = old_time
-
+            # 填寫途中純儲存數據與狀態，不記錄時間
             item_data = {
-                "status": new_status,
+                "status": "NG" if is_ng else "OK",
                 "values": entered_vals,
                 "remark": remark,
-                "filled_time": final_time,
             }
             st.session_state.inspection_data[cur["no"]] = item_data
 
