@@ -17,6 +17,12 @@ if "meta" not in st.session_state:
     st.session_state.meta = {}
 if "submitted_records" not in st.session_state:
     st.session_state.submitted_records = {}
+if "session_cache" not in st.session_state:
+    # 專門用來記憶「當天、當場次」已經填過但還沒最後送出的暫存資料庫
+    # 格式: { (date_str, session_time, item_no): data }
+    st.session_state.session_cache = {}
+if "last_saved_path" not in st.session_state:
+    st.session_state.last_saved_path = ""
 
 # --- 1. 登入與巡檢基本設定頁面 ---
 if st.session_state.page == "login":
@@ -47,7 +53,17 @@ if st.session_state.page == "login":
                 "line": line,
                 "model": model,
             }
+
+            # 🚀 自動載入：檢查該日期與時段是否有之前暫存的紀錄，若有則直接帶回
             st.session_state.inspection_data = {}
+            for (
+                d_str,
+                s_time,
+                item_no,
+            ), cached_data in st.session_state.session_cache.items():
+                if d_str == target_date_str and s_time == session_time:
+                    st.session_state.inspection_data[item_no] = cached_data
+
             st.session_state.page = "dashboard"
             st.rerun()
 
@@ -71,7 +87,15 @@ elif st.session_state.page == "dashboard":
 
     if selected_date_str != str(meta["inspection_date"]):
         meta["inspection_date"] = selected_date_str
+        # 切換日期時，重新載入該日期的暫存紀錄
         st.session_state.inspection_data = {}
+        for (
+            d_str,
+            s_time,
+            item_no,
+        ), cached_data in st.session_state.session_cache.items():
+            if d_str == selected_date_str and s_time == meta["session_time"]:
+                st.session_state.inspection_data[item_no] = cached_data
         st.rerun()
 
     st.caption(
@@ -178,61 +202,77 @@ elif st.session_state.page == "dashboard":
                         st.rerun()
                 st.divider()
 
-    # 送出區（核心：點擊後自動存入桌面 raw data 資料夾，並在畫面上印出完整路徑）
-    if completed_count > 0:
-        if st.button(
-            "🚀 確認送出並自動存入桌面 [raw data] 資料夾",
-            type="primary",
-            use_container_width=True,
-        ):
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            target_date_str = str(meta["inspection_date"])
+    # 送出按鈕
+    if st.button(
+        "🚀 確認送出並自動存入桌面 [raw data] 資料夾",
+        type="primary",
+        use_container_width=True,
+    ):
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        target_date_str = str(meta["inspection_date"])
 
-            for item_no, data in st.session_state.inspection_data.items():
-                if data["status"] in ["OK", "NG"]:
-                    for idx, val in enumerate(data["values"]):
-                        record_key = (
-                            target_date_str,
-                            meta["session_time"],
-                            item_no,
-                            idx,
-                        )
-                        st.session_state.submitted_records[record_key] = {
-                            "更新時間": current_time,
-                            "指定檢驗日期": target_date_str,
-                            "檢驗人員": meta["inspector"],
-                            "班別": meta["shift"],
-                            "時段": meta["session_time"],
-                            "產線": meta["line"],
-                            "機種": meta["model"],
-                            "項次": item_no,
-                            "量測點/型態": f"點 {idx+1}"
-                            if isinstance(val, (int, float))
-                            else "目視檢查",
-                            "實測值/結果": val,
-                            "判定結果": data["status"],
-                            "異常備註": data["remark"],
-                        }
+        for item_no, data in st.session_state.inspection_data.items():
+            if data["status"] in ["OK", "NG"]:
+                for idx, val in enumerate(data["values"]):
+                    record_key = (
+                        target_date_str,
+                        meta["session_time"],
+                        item_no,
+                        idx,
+                    )
+                    st.session_state.submitted_records[record_key] = {
+                        "更新時間": current_time,
+                        "指定檢驗日期": target_date_str,
+                        "檢驗人員": meta["inspector"],
+                        "班別": meta["shift"],
+                        "時段": meta["session_time"],
+                        "產線": meta["line"],
+                        "機種": meta["model"],
+                        "項次": item_no,
+                        "量測點/型態": f"點 {idx+1}"
+                        if isinstance(val, (int, float))
+                        else "目視檢查",
+                        "實測值/結果": val,
+                        "判定結果": data["status"],
+                        "異常備註": data["remark"],
+                    }
 
-            # 🛠️ 自動寫入桌面 raw data 資料夾
+        # 產出 DataFrame 並寫入桌面 raw data 資料夾
+        if st.session_state.submitted_records:
             df_res = pd.DataFrame(
                 list(st.session_state.submitted_records.values())
             )
-            desktop_path = os.path.join(
-                os.path.expanduser("~"), "Desktop", "raw data"
+        else:
+            df_res = pd.DataFrame(
+                columns=[
+                    "更新時間",
+                    "指定檢驗日期",
+                    "檢驗人員",
+                    "班別",
+                    "時段",
+                    "產線",
+                    "機種",
+                    "項次",
+                    "量測點/型態",
+                    "實測值/結果",
+                    "判定結果",
+                    "異常備註",
+                ]
             )
-            os.makedirs(desktop_path, exist_ok=True)  # 若資料夾不存在自動建立
 
-            file_name = f"IPQC_RawData_{target_date_str}_{meta['session_time'].replace(' ', '_')}.csv"
-            file_path = os.path.join(desktop_path, file_name)
+        desktop_path = os.path.join(
+            os.path.expanduser("~"), "Desktop", "raw data"
+        )
+        os.makedirs(desktop_path, exist_ok=True)
 
-            df_res.to_csv(file_path, index=False, encoding="utf-8-sig")
+        file_name = f"IPQC_RawData_{target_date_str}_{meta['session_time'].replace(' ', '_')}.csv"
+        file_path = os.path.join(desktop_path, file_name)
 
-            # 💡 把完整路徑暫存到 session 裡面，讓下一頁也能清楚看到
-            st.session_state.last_saved_path = file_path
+        df_res.to_csv(file_path, index=False, encoding="utf-8-sig")
+        st.session_state.last_saved_path = file_path
 
-            st.session_state.page = "export"
-            st.rerun()
+        st.session_state.page = "export"
+        st.rerun()
 
     if st.button("🔄 重新設定基本資料", use_container_width=True):
         st.session_state.page = "login"
@@ -297,7 +337,14 @@ elif st.session_state.page == "detail":
                 "values": entered_vals,
                 "remark": remark,
             }
+            # 1. 寫入當前畫面資料庫
             st.session_state.inspection_data[cur["no"]] = item_data
+
+            # 2. 同步寫入「當天、當場次」的暫存記憶庫中，確保下次再登入同一天同一場次時找得回來！
+            target_date_str = str(meta["inspection_date"])
+            cache_key = (target_date_str, meta["session_time"], cur["no"])
+            st.session_state.session_cache[cache_key] = item_data
+
             st.session_state.page = "dashboard"
             st.rerun()
         if back_ok:
@@ -308,7 +355,6 @@ elif st.session_state.page == "detail":
 elif st.session_state.page == "export":
     st.title("📊 Raw Data 檢驗資料庫")
 
-    # 放大顯示剛剛自動存檔的絕對路徑，讓您一眼看出檔案在哪
     saved_path = st.session_state.get(
         "last_saved_path", "（尚未記錄路徑）"
     )
